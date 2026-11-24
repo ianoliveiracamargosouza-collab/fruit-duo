@@ -292,7 +292,7 @@ class Game {
     } else if(type==='bomb'){
       const row=(i/COLS)|0,col=i%COLS;
       for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(Math.abs(r-row)+Math.abs(c-col)<=2) remove.add(r*COLS+c);
-    } else if(type==='rainbow){
+    } else if(type==='rainbow'){
       const color=target.c; for(let j=0;j<this.grid.length;j++) if(this.grid[j]&&this.grid[j].c===color&&this.grid[j].o!==1&&this.grid[j].o!==3) remove.add(j);
     } else return null;
     const actual=[...remove].filter(j=>this.grid[j]&&this.grid[j].c>=0&&this.grid[j].o!==1&&this.grid[j].o!==3);
@@ -639,7 +639,7 @@ cv.addEventListener('pointerdown', e=>{
   doTap(cell[0], App.me, cell[1]*10+cell[2]);
 });
 function doUseItem(type,id){
-  if(App.mode==='guest'){send({t:'useItem',type,id});return;}
+  if(App.mode==='guest'){App.selectedItem=null;updateHUD(App.snap);send({t:'useItem',type,id});return;}
   const ev=App.game&&App.game.useItem(type,id);if(!ev){sfx.nope();return;}
   App.selectedItem=null;const snap=App.game.snapshot();if(App.mode==='host')send({t:'s',s:snap});present(snap);addFloater(ev.at[0],ev.at[1],'-'+ev.n+' 🍓','#ffd54f',1.15);sfx.special();
 }
