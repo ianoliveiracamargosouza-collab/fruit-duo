@@ -29,6 +29,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void join(String code) {
             new Thread(() -> joinRoom(code), "fruit-join").start();
         }
+        @JavascriptInterface public void stop() { running=false; try{if(server!=null)server.close();}catch(Exception ignored){} try{if(guestSocket!=null)guestSocket.close();}catch(Exception ignored){} }
         @JavascriptInterface public void answer(String sdp) {
             Socket s=guestSocket;
             if(s==null)return;
