@@ -31,7 +31,12 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--bg2);color:var(-
 #players{display:flex;justify-content:center;gap:18px;font-size:13px;padding:2px 0 6px;min-height:22px}
 #players span{display:flex;align-items:center;gap:6px}
 .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
-#board{flex:1;min-height:0;width:100%;display:block;touch-action:none;margin-bottom:8px}
+#board{flex:1;min-height:0;width:100%;display:block;touch-action:none;margin-bottom:4px}
+#inventory{display:flex;justify-content:center;gap:8px;padding:4px 0 9px;min-height:66px;flex-shrink:0}
+.inv{flex:1;max-width:116px;min-width:0;border:1px solid rgba(255,255,255,.18);border-radius:13px;background:rgba(255,255,255,.1);color:#fff;padding:7px 4px;font-weight:700;font-size:12px;line-height:1.2}
+.inv b{display:block;font-size:20px;margin-bottom:2px}.inv small{display:block;font-size:10px;opacity:.8}
+.inv.selected{border:2px solid var(--gold);background:rgba(255,213,79,.22);box-shadow:0 0 12px rgba(255,213,79,.25)}
+.inv:disabled{opacity:.35}
 #overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
   background:rgba(10,4,24,.72);backdrop-filter:blur(4px);padding:16px;overflow:auto}
 #overlay.on{display:flex}
@@ -70,6 +75,11 @@ textarea{width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.2);bac
   </header>
   <div id="players"></div>
   <canvas id="board"></canvas>
+  <div id="inventory" aria-label="Inventário">
+    <button class="inv" data-item="rocket"><b>🚀 <span id="invRocket">0</span></b>Foguete<small>Linha + coluna</small></button>
+    <button class="inv" data-item="bomb"><b>💣 <span id="invBomb">0</span></b>Bomba<small>Explosão ao redor</small></button>
+    <button class="inv" data-item="rainbow"><b>🌈 <span id="invRainbow">0</span></b>Arco-íris<small>Escolha uma cor</small></button>
+  </div>
 </div>
 <div id="overlay"></div>
 
@@ -114,6 +124,7 @@ class Game {
     this.rng = mulberry32(seed || (Date.now() & 0x7fffffff));
     this.solo = !!solo;   // sem parceiro não há bônus DUO, então a meta é menor
     this.nextId = 1; this.lastAct = [-1e9,-1e9];
+    this.inventory = {rocket:0,bomb:0,rainbow:0};
     this.start(1);
   }
   cfg(level){
@@ -236,8 +247,12 @@ class Game {
     for (const j of hit) { this.grid[j].hp--; if (this.grid[j].hp<=0) this.grid[j]=null; }
     this.gravity();
     this.moves--; this.score += pts; this.ps[player] += pts;
-    if (this.score >= this.target) this.status = 'won';
-    else if (this.moves <= 0) this.status = 'lost';
+    if (this.score >= this.target) {
+      this.status = 'won';
+      const pool=['rocket','bomb','rainbow'];
+      this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;
+      if(this.level%5===0) for(let k=0;k<2;k++) this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;
+    } else if (this.moves <= 0) this.status = 'lost';
     else if (!this.hasMove()) this.reshuffle();
     return {by:player, at:[i%COLS,(i/COLS)|0], pts, duo, n:removed.size, g:groupSize, made:madeId, rem};
   }
@@ -265,15 +280,38 @@ class Game {
     }
     if (!this.hasMove()) for (const g of this.grid) if (!g.s && !g.o) g.c = 0;
   }
+  useItem(type,id){
+    if(this.status!=='play'||!this.inventory[type]) return null;
+    const i=this.indexOfId(id); if(i<0) return null;
+    const target=this.grid[i]; if(!target||target.c<0||target.o===1||target.o===3) return null;
+    const remove=new Set();
+    if(type==='rocket'){
+      const row=(i/COLS)|0,col=i%COLS;
+      for(let c=0;c<COLS;c++) remove.add(row*COLS+c);
+      for(let r=0;r<ROWS;r++) remove.add(r*COLS+col);
+    } else if(type==='bomb'){
+      const row=(i/COLS)|0,col=i%COLS;
+      for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(Math.abs(r-row)+Math.abs(c-col)<=2) remove.add(r*COLS+c);
+    } else if(type==='rainbow){
+      const color=target.c; for(let j=0;j<this.grid.length;j++) if(this.grid[j]&&this.grid[j].c===color&&this.grid[j].o!==1&&this.grid[j].o!==3) remove.add(j);
+    } else return null;
+    const actual=[...remove].filter(j=>this.grid[j]&&this.grid[j].c>=0&&this.grid[j].o!==1&&this.grid[j].o!==3);
+    if(!actual.length) return null;
+    this.inventory[type]--; const points=actual.length*8;
+    for(const j of actual) this.grid[j]=null;
+    this.gravity(); this.score+=points;
+    if(this.score>=this.target){this.status='won';const pool=['rocket','bomb','rainbow'];this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;if(this.level%5===0)for(let k=0;k<2;k++)this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;}
+    return {type,at:[i%COLS,(i/COLS)|0],n:actual.length,pts:points};
+  }
   snapshot(){
-    return {lv:this.level, mv:this.moves, tg:this.target, sc:this.score, ps:this.ps.slice(),
+    return {lv:this.level, mv:this.moves, tg:this.target, sc:this.score, ps:this.ps.slice(), inv:{...this.inventory},
             st:this.status, nc:this.nc, solo:this.solo, nextId:this.nextId, rng:this.rng.getState(),
             g:this.grid.map(g=>[g.id,g.c,g.s,g.o||0,g.hp||0])};
   }
   static restore(s){
     const game = new Game(1, !!s.solo);
     game.level=s.lv; game.moves=s.mv; game.target=s.tg; game.score=s.sc; game.ps=s.ps.slice();
-    game.status=s.st; game.nc=s.nc; game.nextId=s.nextId||1;
+    game.status=s.st; game.nc=s.nc; game.nextId=s.nextId||1; game.inventory={rocket:0,bomb:0,rainbow:0,...(s.inv||{})};
     game.grid=s.g.map(e=>({id:e[0],c:e[1],s:e[2],o:e[3]||0,hp:e[4]||0}));
     if (s.rng!==undefined) game.rng.setState(s.rng);
     return game;
@@ -537,13 +575,15 @@ function frame(now){
 /* ---------- estado do app ---------- */
 const App = {
   mode:'menu',      // menu | solo | host | guest
-  me:0, game:null, snap:null, idxById:new Map(),
+  me:0, game:null, snap:null, idxById:new Map(), selectedItem:null,
   status:'play', dc:null, pc:null, lastRx:0, hb:null, connected:false, resultTimer:null
 };
 const $ = id => document.getElementById(id);
 
 function updateHUD(s){
   $('lv').textContent = s.lv; $('mv').textContent = s.mv;
+  const inv=s.inv||{rocket:0,bomb:0,rainbow:0}; $('invRocket').textContent=inv.rocket||0; $('invBomb').textContent=inv.bomb||0; $('invRainbow').textContent=inv.rainbow||0;
+  document.querySelectorAll('.inv').forEach(b=>{const type=b.dataset.item;b.disabled=!(inv[type]>0);b.classList.toggle('selected',App.selectedItem===type);});
   $('sc').textContent = s.sc; $('tg').textContent = s.tg;
   const tot = Math.max(s.tg, s.ps[0]+s.ps[1]);
   $('b0').style.width = (s.ps[0]/tot*100)+'%'; $('b1').style.width = (s.ps[1]/tot*100)+'%';
@@ -590,6 +630,7 @@ cv.addEventListener('pointerdown', e=>{
   e.preventDefault(); unlockAudio();
   if (App.mode==='menu' || !App.snap || App.snap.st!=='play') return;
   const h = cellAtPointer(e); if (!h) return;
+  if(App.selectedItem){doUseItem(App.selectedItem,App.snap.g[h.i][0]);return;}
   const cell = App.snap.g[h.i], sp = sprites.get(cell[0]);
   const valid = cell[3]===1 || cell[3]===3 ? cell[3]===1 : (cell[2] || floodIdx(j => App.snap.g[j][2] || App.snap.g[j][3]===1 || App.snap.g[j][3]===3 ? -1 : App.snap.g[j][1], h.i).length >= 2);
   addRing(h.c,h.r,App.me,false);
@@ -597,6 +638,12 @@ cv.addEventListener('pointerdown', e=>{
   if (navigator.vibrate) navigator.vibrate(12);
   doTap(cell[0], App.me, cell[1]*10+cell[2]);
 });
+function doUseItem(type,id){
+  if(App.mode==='guest'){send({t:'useItem',type,id});return;}
+  const ev=App.game&&App.game.useItem(type,id);if(!ev){sfx.nope();return;}
+  App.selectedItem=null;const snap=App.game.snapshot();if(App.mode==='host')send({t:'s',s:snap});present(snap);addFloater(ev.at[0],ev.at[1],'-'+ev.n+' 🍓','#ffd54f',1.15);sfx.special();
+}
+document.querySelectorAll('.inv').forEach(b=>b.addEventListener('click',()=>{unlockAudio();const type=b.dataset.item;if(!(App.snap&&App.snap.inv&&App.snap.inv[type]>0))return;App.selectedItem=App.selectedItem===type?null:type;updateHUD(App.snap);}));
 function doTap(id, player, sig){
   if (App.mode==='guest'){ send({t:'tap', id, sig}); return; }
   const ev = App.game.tap(id, player, performance.now(), sig);
@@ -661,6 +708,7 @@ function command(a){
 }
 function hostCommand(a){
   const g = App.game; if (!g) return;
+  App.selectedItem=null;
   if (a==='next' && g.status==='won') g.start(g.level+1);
   else if (a==='retry' && g.status==='lost') g.start(g.level);
   else return;
@@ -765,6 +813,7 @@ function onConnected(){
 function onMessage(m){
   if (m.t==='s'){ if (App.mode==='guest'){ if (ov.classList.contains('on') && m.s.st==='play') hideOverlay(); present(m.s, m.e); } }
   else if (m.t==='tap'){ if (App.mode==='host') doTap(m.id, 1, m.sig); }
+  else if (m.t==='useItem'){if(App.mode==='host')doUseItem(m.type,m.id);}
   else if (m.t==='cmd'){ if (App.mode==='host') hostCommand(m.a); }
   else if (m.t==='hello'){ if (App.mode==='host' && App.game) send({t:'s', s:App.game.snapshot()}); }
 }
