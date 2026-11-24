@@ -340,8 +340,8 @@ class Game {
     return {type,at:[i%COLS,(i/COLS)|0],n:actual.length,pts:points};
   }
   awardRelic(){if(this.level%5!==0)return;const keys=['apple','grape','orange','kiwi','blueberry'];const k=keys[(Math.floor(this.level/5)-1)%5];this.relics[k]=Math.min(5,(this.relics[k]||0)+1);
-    const owned=['rocket','bomb','rainbow'].filter(type=>(this.inventory[type]||0)>0),chance=owned.length===1?1:owned.length===2?0.5:owned.length===3?0.25:0;
-    for(const type of owned)if((this.itemLevels[type]||1)<5&&this.rng()<chance)this.itemLevels[type]=Math.min(5,(this.itemLevels[type]||1)+1);
+    const eligible=['rocket','bomb','rainbow'].filter(type=>(this.itemLevels[type]||1)<5),chance=eligible.length===1?1:eligible.length===2?0.5:eligible.length===3?0.25:0;
+    for(const type of eligible)if(this.rng()<chance)this.itemLevels[type]=Math.min(5,(this.itemLevels[type]||1)+1);
   }
   snapshot(){
     return {lv:this.level, mv:this.moves, tg:this.target, sc:this.score, ps:this.ps.slice(), inv:{...this.inventory},relics:{...this.relics},itemLevels:{...this.itemLevels},
