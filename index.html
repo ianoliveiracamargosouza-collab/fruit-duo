@@ -728,6 +728,7 @@ function newPC(){
 }
 function resetNet(){
   clearInterval(App.hb); App.hb=null; App.connected=false;
+  try{if(window.AndroidLan)window.AndroidLan.stop();}catch(e){}
   try{ App.dc && App.dc.close(); }catch(e){}
   try{ App.pc && App.pc.close(); }catch(e){}
   App.dc=null; App.pc=null;
@@ -832,6 +833,7 @@ window.onLanAnswer=async function(sdp){
   try{await App.pc.setRemoteDescription({type:'answer',sdp});setLobbyMsg('Conectando ao parceiro…');}
   catch(e){setLobbyMsg('Erro na resposta: '+e.message,true);}
 };
+window.onLanError=function(message){setLobbyMsg(message||'Falha na conexão local.',true);};
 
 
 /* ---------- início ---------- */
