@@ -91,8 +91,7 @@ textarea{width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.2);bac
     <button class="inv" data-item="bomb"><b>💣 <span id="invBomb">0</span></b>Bomba<small>Explosão ao redor</small></button>
     <button class="inv" data-item="rainbow"><b>🌈 <span id="invRainbow">0</span></b>Arco-íris<small>Escolha uma cor</small></button>
   </div>
-  <div id="relicEnergy" style="font-size:10px;text-align:center;opacity:.9">Energia individual — Você: <span id="relEnergy0">0</span>% · Parceiro: <span id="relEnergy1">0</span>%</div>
-  <div id="relicInfo" class="relicInfo">Toque em uma relíquia para ver o efeito. Com 25% de energia, selecione-a e toque em uma fruta.</div>
+  <div id="relicInfo" class="relicInfo">Relíquias passivas: os efeitos funcionam automaticamente. Toque para ver os detalhes.</div>
   <div id="relics"><button class="relic" data-relic="apple"><b>🍎 <span id="relApple">0</span></b>Maçã</button><button class="relic" data-relic="grape"><b>🍇 <span id="relGrape">0</span></b>Uva</button><button class="relic" data-relic="orange"><b>🍊 <span id="relOrange">0</span></b>Laranja</button><button class="relic" data-relic="kiwi"><b>🥝 <span id="relKiwi">0</span></b>Kiwi</button><button class="relic" data-relic="blueberry"><b>🫐 <span id="relBlueberry">0</span></b>Mirtilo</button></div>
 </div>
 <div id="overlay"></div>
@@ -139,7 +138,7 @@ class Game {
     this.solo = !!solo;   // sem parceiro não há bônus DUO, então a meta é menor
     this.nextId = 1; this.lastAct = [-1e9,-1e9];
     this.inventory = {rocket:0,bomb:0,rainbow:0};
-    this.relics={apple:0,grape:0,orange:0,kiwi:0,blueberry:0};this.energy=[0,0];this.scoreBoost=0;this.boostCombos=0;
+    this.relics={apple:0,grape:0,orange:0,kiwi:0,blueberry:0};
     this.start(1);
   }
   cfg(level){
@@ -175,7 +174,7 @@ class Game {
       this.grid[i] = {id:this.nextId++, c:-1, s:0, o:3, hp:0};
     }
   }
-  newCell(){ return {id:this.nextId++, c:Math.floor(this.rng()*this.nc), s:0, o:0, hp:0}; }
+  newCell(falling=false){let color=Math.floor(this.rng()*this.nc);const lv=this.relics.blueberry||0;if(falling&&lv&&this.rng()<[0,.10,.20,.30,.40,.50][Math.min(5,lv)])color=4;return {id:this.nextId++,c:color,s:0,o:0,hp:0};}
   ensureMove(){
     if(this.hasMove())return;
     this.reshuffle();
@@ -202,17 +201,14 @@ class Game {
   }
   hasMove(){
     for (let i=0;i<this.grid.length;i++){
-      const g = this.grid[i]; if (g.o===3 || g.o===1 || g.c<0) continue; if (g.s) return true;
-      const c = i%COLS;
-      if (c<COLS-1 && this.grid[i+1].o!==3 && this.grid[i+1].o!==1 && this.grid[i+1].c===g.c) return true;
-      if (i+COLS<this.grid.length && this.grid[i+COLS].o!==3 && this.grid[i+COLS].o!==1 && this.grid[i+COLS].c===g.c) return true;
+      const g=this.grid[i];if(!g||g.o===3||g.o===1||g.c<0)continue;if(g.s)return true;const c=i%COLS,right=c<COLS-1?this.grid[i+1]:null,down=i+COLS<this.grid.length?this.grid[i+COLS]:null;if(right&&right.o!==3&&right.o!==1&&right.c===g.c)return true;if(down&&down.o!==3&&down.o!==1&&down.c===g.c)return true;
     }
     return false;
   }
-  indexOfId(id){ for (let i=0;i<this.grid.length;i++) if (this.grid[i].id===id) return i; return -1; }
+  indexOfId(id){for(let i=0;i<this.grid.length;i++)if(this.grid[i]&&this.grid[i].id===id)return i;return -1;}
   mostCommonColor(){
     const cnt = new Array(6).fill(0);
-    for (const g of this.grid) if (g.c>=0) cnt[g.c]++;
+    for (const g of this.grid) if (g&&g.c>=0) cnt[g.c]++;
     let best = 0; for (let i=1;i<6;i++) if (cnt[i]>cnt[best]) best = i;
     return best;
   }
@@ -229,7 +225,7 @@ class Game {
           if (Math.abs(rr-r)+Math.abs(cc-c) <= 2) add.push(rr*COLS+cc);
       } else if (cell.s===SP.RAINBOW){
         const col = this.mostCommonColor();
-        for (let j=0;j<this.grid.length;j++) if (this.grid[j].c===col) add.push(j);
+        for (let j=0;j<this.grid.length;j++) if (this.grid[j]&&this.grid[j].c===col) add.push(j);
       }
       for (const j of add) if (!out.has(j)){ out.add(j); queue.push(j); }
     }
@@ -239,7 +235,7 @@ class Game {
   tap(id, player, now, sig){
     if (this.status !== 'play') return null;
     const i = this.indexOfId(id); if (i<0) return null;
-    const cell = this.grid[i];
+    const cell=this.grid[i];if(!cell)return null;
     if (sig !== undefined && sig !== cell.c*10+cell.s) return null;
     if (cell.o===3) return null;
     if (cell.o===1) {
@@ -270,11 +266,12 @@ class Game {
       removed = this.expand([i]);
       pts = removed.size*15;
     }
-    if(this.scoreBoost>0&&this.boostCombos>0){pts*=this.scoreBoost;this.boostCombos--;if(!this.boostCombos)this.scoreBoost=0;}
+    const orangeLv=this.relics.orange||0,orangeChance=[0,.10,.20,.30,.40,.50][Math.min(5,orangeLv)];if(orangeLv&&this.rng()<orangeChance)pts*=2;
     let duo = false;
     const other = 1-player;
     if (now - this.lastAct[other] <= DUO_WINDOW){ duo = true; pts = Math.floor(pts*DUO_MULT); }
     this.lastAct[player] = now;
+    const grapeLv=this.relics.grape||0,grapeChance=[0,.05,.10,.15,.20,.25][Math.min(5,grapeLv)];if(grapeLv&&this.rng()<grapeChance){const rr=(i/COLS)|0,cc=i%COLS;for(let y=Math.max(0,rr-1);y<=Math.min(ROWS-1,rr+1);y++)for(let x=Math.max(0,cc-1);x<=Math.min(COLS-1,cc+1);x++){const j=y*COLS+x,g=this.grid[j];if(g&&g.c>=0&&g.o!==1&&g.o!==3)removed.add(j);}}
     // Obstáculos atingidos por uma combinação perdem uma camada de resistência.
     const hit = new Set();
     for (const j of removed) {
@@ -287,8 +284,9 @@ class Game {
     for (const j of removed) if (this.grid[j] && this.grid[j].o!==3 && this.grid[j].o!==1) this.grid[j] = null;
     for (const j of hit) { this.grid[j].hp--; if (this.grid[j].hp<=0) this.grid[j]=null; }
     this.gravity();
-    this.moves--; this.score += pts; this.ps[player] += pts;
-    this.energy[player]=Math.min(100,(this.energy[player]||0)+removed.size*2);
+    const kiwiLv=this.relics.kiwi||0,kiwiChance=[0,.05,.10,.15,.20,.25][Math.min(5,kiwiLv)];if(kiwiLv&&this.rng()<kiwiChance){let best=[];const ar=(i/COLS)|0,ac=i%COLS;for(let y=Math.max(0,ar-2);y<=Math.min(ROWS-1,ar+2);y++)for(let x=Math.max(0,ac-2);x<=Math.min(COLS-1,ac+2);x++){const j=y*COLS+x,g=this.grid[j];if(!g||g.c<0||g.o===1||g.o===3)continue;const group=floodIdx(k=>{const q=this.grid[k];return q&&!q.s&&q.o!==1&&q.o!==3?q.c:-1;},j);if(group.length>=2&&group.length>best.length)best=group;}if(best.length){for(const j of best)this.grid[j]=null;pts+=best.length*10;this.gravity();}}
+    this.moves--;const appleLv=this.relics.apple||0,appleChance=[0,.05,.10,.15,.20,.25][Math.min(5,appleLv)];if(appleLv&&this.rng()<appleChance)this.moves++;
+    this.score += pts; this.ps[player] += pts;
     if (this.score >= this.target) {
       this.status = 'won'; this.awardRelic();
       const pool=['rocket','bomb','rainbow'];
@@ -299,19 +297,8 @@ class Game {
     return {by:player, at:[i%COLS,(i/COLS)|0], pts, duo, n:removed.size, g:groupSize, made:madeId, rem};
   }
   gravity(){
-    for (let c=0;c<COLS;c++){
-      let bottom=ROWS-1;
-      while (bottom>=0){
-        if (this.grid[bottom] && (this.grid[bottom].o===1 || this.grid[bottom].o===3)){ bottom--; continue; }
-        let top=bottom;
-        while (top>=0 && !(this.grid[top] && (this.grid[top].o===1 || this.grid[top].o===3))) top--;
-        const col=[];
-        for(let r=bottom;r>top;r--) if(this.grid[r*COLS+c]) col.push(this.grid[r*COLS+c]);
-        while(col.length<bottom-top) col.push(this.newCell());
-        for(let r=bottom,k=0;r>top;r--,k++) this.grid[r*COLS+c]=col[k];
-        bottom=top-1;
-      }
-    }
+    // Verifica os obstáculos na coluna correta: corrigido o índice que travava a fase 12.
+    for(let c=0;c<COLS;c++){let bottom=ROWS-1;while(bottom>=0){const at=r=>this.grid[r*COLS+c],block=g=>!!g&&(g.o===1||g.o===3);if(block(at(bottom))){bottom--;continue;}let top=bottom;while(top>=0&&!block(at(top)))top--;const col=[];for(let r=bottom;r>top;r--){const g=at(r);if(g)col.push(g);}while(col.length<bottom-top)col.push(this.newCell(true));for(let r=bottom,k=0;r>top;r--,k++)this.grid[r*COLS+c]=col[k];bottom=top-1;}}
   }
   reshuffle(){
     for (let tries=0; tries<50 && !this.hasMove(); tries++){
@@ -346,18 +333,17 @@ class Game {
     if(this.score>=this.target){this.status='won';this.awardRelic();const pool=['rocket','bomb','rainbow'];this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;if(this.level%5===0)for(let k=0;k<2;k++)this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;}
     return {type,at:[i%COLS,(i/COLS)|0],n:actual.length,pts:points};
   }
-  awardRelic(){if(this.level%5!==0)return;const keys=['apple','grape','orange','kiwi','blueberry'];const k=keys[(Math.floor(this.level/5)-1)%5];this.relics[k]=Math.min(4,(this.relics[k]||0)+1);}
-  useRelic(key,id,player=0){if(this.status!=='play'||(this.energy[player]||0)<25||!this.relics[key])return null;const i=this.indexOfId(id);if(i<0||!this.grid[i]||this.grid[i].c<0||this.grid[i].o===1||this.grid[i].o===3)return null;const lv=this.relics[key],r=(i/COLS)|0,c=i%COLS,rm=new Set();if(key==='apple')this.moves+=Math.min(5,lv+1);if(key==='grape'){const d=lv===1?1:lv===2?2:lv===3?2:3;for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)if(Math.abs(y-r)<=d&&Math.abs(x-c)<=d)rm.add(y*COLS+x);}if(key==='orange'){const n=lv>=3?1:0;for(let y=Math.max(0,r-n);y<=Math.min(ROWS-1,r+n);y++)for(let x=0;x<COLS;x++)rm.add(y*COLS+x);if(lv>=2)for(let x=Math.max(0,c-(lv===4?1:0));x<=Math.min(COLS-1,c+(lv===4?1:0));x++)for(let y=0;y<ROWS;y++)rm.add(y*COLS+x);}if(key==='kiwi'){this.scoreBoost=lv>=3?3:2;this.boostCombos=lv===4?6:lv===3?4:lv===2?5:3;}if(key==='blueberry'){const colors=[this.grid[i].c];if(lv>=3)for(const g of this.grid)if(g&&g.c>=0&&!colors.includes(g.c)&&colors.length<(lv===4?3:2))colors.push(g.c);for(let j=0;j<this.grid.length;j++)if(this.grid[j]&&colors.includes(this.grid[j].c))rm.add(j);}const a=[...rm].filter(j=>this.grid[j]&&this.grid[j].c>=0&&this.grid[j].o!==1&&this.grid[j].o!==3);for(const j of a)this.grid[j]=null;const pts=a.length*8;this.gravity();this.score+=pts;this.energy[player]=0;return {key,at:[c,r],n:a.length,pts,player};}
+  awardRelic(){if(this.level%5!==0)return;const keys=['apple','grape','orange','kiwi','blueberry'];const k=keys[(Math.floor(this.level/5)-1)%5];this.relics[k]=Math.min(5,(this.relics[k]||0)+1);}
   snapshot(){
-    return {lv:this.level, mv:this.moves, tg:this.target, sc:this.score, ps:this.ps.slice(), inv:{...this.inventory},relics:{...this.relics},energy:this.energy.slice(),scoreBoost:this.scoreBoost,boostCombos:this.boostCombos,
+    return {lv:this.level, mv:this.moves, tg:this.target, sc:this.score, ps:this.ps.slice(), inv:{...this.inventory},relics:{...this.relics},
             st:this.status, nc:this.nc, solo:this.solo, nextId:this.nextId, rng:this.rng.getState(),
-            g:this.grid.map(g=>[g.id,g.c,g.s,g.o||0,g.hp||0])};
+            g:this.grid.map(g=>g?[g.id,g.c,g.s,g.o||0,g.hp||0]:null)};
   }
   static restore(s){
     const game = new Game(1, !!s.solo);
     game.level=s.lv; game.moves=s.mv; game.target=s.tg; game.score=s.sc; game.ps=s.ps.slice();
-    game.status=s.st; game.nc=s.nc; game.nextId=s.nextId||1; game.inventory={rocket:0,bomb:0,rainbow:0,...(s.inv||{})};game.relics={apple:0,grape:0,orange:0,kiwi:0,blueberry:0,...(s.relics||{})};game.energy=Array.isArray(s.energy)?s.energy.slice(0,2):[s.energy||0,0];while(game.energy.length<2)game.energy.push(0);game.scoreBoost=s.scoreBoost||0;game.boostCombos=s.boostCombos||0;
-    game.grid=s.g.map(e=>({id:e[0],c:e[1],s:e[2],o:e[3]||0,hp:e[4]||0}));
+    game.status=s.st; game.nc=s.nc; game.nextId=s.nextId||1; game.inventory={rocket:0,bomb:0,rainbow:0,...(s.inv||{})};game.relics={apple:0,grape:0,orange:0,kiwi:0,blueberry:0,...(s.relics||{})};
+    game.grid=s.g.map(e=>e?({id:e[0],c:e[1],s:e[2],o:e[3]||0,hp:e[4]||0}):null);
     if (s.rng!==undefined) game.rng.setState(s.rng);
     if(game.status==='play')game.ensureMove();
     return game;
@@ -647,7 +633,7 @@ function updateBossBanner(level){
 
 function updateHUD(s){
   $('lv').textContent = s.lv; $('mv').textContent = s.mv; updateBossBanner(s.lv);
-  const inv=s.inv||{rocket:0,bomb:0,rainbow:0};const rel=s.relics||{};for(const k of ['apple','grape','orange','kiwi','blueberry'])$('rel'+k[0].toUpperCase()+k.slice(1)).textContent=rel[k]||0;const energies=Array.isArray(s.energy)?s.energy:[s.energy||0,0];$('relEnergy0').textContent=energies[App.me]||0;$('relEnergy1').textContent=energies[1-App.me]||0;document.querySelectorAll('.relic').forEach(b=>{b.disabled=!((rel[b.dataset.relic]||0)>0);b.classList.toggle('selected',App.selectedRelic===b.dataset.relic);}); $('invRocket').textContent=inv.rocket||0; $('invBomb').textContent=inv.bomb||0; $('invRainbow').textContent=inv.rainbow||0;
+  const inv=s.inv||{rocket:0,bomb:0,rainbow:0};const rel=s.relics||{};for(const k of ['apple','grape','orange','kiwi','blueberry'])$('rel'+k[0].toUpperCase()+k.slice(1)).textContent=rel[k]||0;document.querySelectorAll('.relic').forEach(b=>{b.disabled=!((rel[b.dataset.relic]||0)>0);b.classList.remove('selected');}); $('invRocket').textContent=inv.rocket||0; $('invBomb').textContent=inv.bomb||0; $('invRainbow').textContent=inv.rainbow||0;
   document.querySelectorAll('.inv').forEach(b=>{const type=b.dataset.item;b.disabled=!(inv[type]>0);b.classList.toggle('selected',App.selectedItem===type);});
   $('sc').textContent = s.sc; $('tg').textContent = s.tg;
   const tot = Math.max(s.tg, s.ps[0]+s.ps[1]);
@@ -695,10 +681,9 @@ cv.addEventListener('pointerdown', e=>{
   e.preventDefault(); unlockAudio();
   if (App.mode==='menu' || !App.snap || App.snap.st!=='play') return;
   const h = cellAtPointer(e); if (!h) return;
-  if(App.selectedItem){doUseItem(App.selectedItem,App.snap.g[h.i][0]);return;}
-  if(App.selectedRelic){doUseRelic(App.selectedRelic,App.snap.g[h.i][0]);return;}
-  const cell = App.snap.g[h.i], sp = sprites.get(cell[0]);
-  const valid = cell[3]===1 || cell[3]===3 ? cell[3]===1 : (cell[2] || floodIdx(j => App.snap.g[j][2] || App.snap.g[j][3]===1 || App.snap.g[j][3]===3 ? -1 : App.snap.g[j][1], h.i).length >= 2);
+  if(App.selectedItem){const target=App.snap.g[h.i];if(target)doUseItem(App.selectedItem,target[0]);return;}
+  const cell=App.snap.g[h.i];if(!cell){sfx.nope();return;}const sp=sprites.get(cell[0]);
+  const valid=cell[3]===1||cell[3]===3?cell[3]===1:(cell[2]||floodIdx(j=>{const q=App.snap.g[j];return q&&(q[2]||q[3]===1||q[3]===3)?-1:(q?q[1]:-1);},h.i).length>=2);
   addRing(h.c,h.r,App.me,false);
   if (!valid){ if (sp) sp.shake = 1; sfx.nope(); return; }
   if (navigator.vibrate) navigator.vibrate(12);
@@ -710,9 +695,7 @@ function doUseItem(type,id){
   App.selectedItem=null;const snap=App.game.snapshot();if(App.mode==='host')send({t:'s',s:snap});present(snap);addFloater(ev.at[0],ev.at[1],'-'+ev.n+' 🍓','#ffd54f',1.15);sfx.special();
 }
 document.querySelectorAll('.inv').forEach(b=>b.addEventListener('click',()=>{unlockAudio();const type=b.dataset.item;if(!(App.snap&&App.snap.inv&&App.snap.inv[type]>0))return;App.selectedItem=App.selectedItem===type?null:type;updateHUD(App.snap);}));
-function doUseRelic(key,id){if(App.mode==='guest'){App.selectedRelic=null;updateHUD(App.snap);send({t:'useRelic',key,id,player:App.me});return;}const ev=App.game&&App.game.useRelic(key,id,App.me);if(!ev){sfx.nope();return;}App.selectedRelic=null;const snap=App.game.snapshot();if(App.mode==='host')send({t:'s',s:snap});present(snap);addFloater(ev.at[0],ev.at[1],ev.key==='apple'?'+jogadas':'-'+ev.n+' frutas','#ffd54f',1.2);sfx.special();}
-const RELIC_INFO={apple:'🍎 Maçã: adiciona jogadas. Evolução: concede mais jogadas extras.',grape:'🍇 Uva: explode frutas em uma área ao redor do ponto escolhido. Evolução: aumenta o alcance.',orange:'🍊 Laranja: limpa linhas e colunas. Evolução: atinge mais linhas e colunas.',kiwi:'🥝 Kiwi: multiplica os pontos das próximas combinações. Evolução: aumenta o multiplicador e a duração.',blueberry:'🫐 Mirtilo: elimina frutas da cor escolhida. Evolução: pode eliminar até 3 cores.'};
-document.querySelectorAll('.relic').forEach(b=>b.addEventListener('click',()=>{unlockAudio();const k=b.dataset.relic,lv=(App.snap&&App.snap.relics&&App.snap.relics[k])||0;const energy=App.snap?(Array.isArray(App.snap.energy)?App.snap.energy[App.me]||0:App.snap.energy||0):0;$('relicInfo').textContent=RELIC_INFO[k]+' Nível '+lv+'/4. Energia deste jogador: '+energy+'%. '+(energy>=25?'Toque novamente para selecionar e depois escolha uma fruta.':'A energia é carregada pelas frutas que você estoura. Precisa de 25%.');if(!App.snap||!lv||energy<100)return;App.selectedRelic=App.selectedRelic===k?null:k;App.selectedItem=null;updateHUD(App.snap);}));
+const RELIC_INFO={apple:'🍎 Maçã — Reserva de jogadas: chance de não gastar a jogada usada.',grape:'🍇 Uva — Reação em cadeia: chance de explosão 3×3 ao redor do toque.',orange:'🍊 Laranja — Colheita dupla: chance de dobrar os pontos do grupo.',kiwi:'🥝 Kiwi — Cascata verde: chance de remover automaticamente um segundo grupo próximo.',blueberry:'🫐 Mirtilo — Chuva de mirtilos: chance de transformar frutas novas que caem em mirtilos.'};document.querySelectorAll('.relic').forEach(b=>b.addEventListener('click',()=>{unlockAudio();const k=b.dataset.relic,lv=(App.snap&&App.snap.relics&&App.snap.relics[k])||0,ch={apple:[0,5,10,15,20,25],grape:[0,5,10,15,20,25],orange:[0,10,20,30,40,50],kiwi:[0,5,10,15,20,25],blueberry:[0,10,20,30,40,50]};$('relicInfo').textContent=RELIC_INFO[k]+' Nível '+lv+'/5. Chance atual: '+(ch[k][Math.min(5,lv)]||0)+'%. Efeito passivo: funciona automaticamente.';}));
 function doTap(id, player, sig){
   if (App.mode==='guest'){ send({t:'tap', id, sig}); return; }
   const ev = App.game.tap(id, player, performance.now(), sig);
@@ -883,7 +866,6 @@ function onMessage(m){
   if (m.t==='s'){ if (App.mode==='guest'){ if (ov.classList.contains('on') && m.s.st==='play') hideOverlay(); present(m.s, m.e); } }
   else if (m.t==='tap'){ if (App.mode==='host') doTap(m.id, 1, m.sig); }
   else if (m.t==='useItem'){if(App.mode==='host'){const ev=App.game&&App.game.useItem(m.type,m.id,m.player===1?1:0);if(ev){const snap=App.game.snapshot();send({t:'s',s:snap});present(snap);addFloater(ev.at[0],ev.at[1],'-'+ev.n+' 🍓','#ffd54f',1.15);sfx.special();}}}
-  else if (m.t==='useRelic'){if(App.mode==='host'){const ev=App.game&&App.game.useRelic(m.key,m.id,m.player===1?1:0);if(ev){const snap=App.game.snapshot();send({t:'s',s:snap});present(snap);addFloater(ev.at[0],ev.at[1],ev.key==='apple'?'+jogadas':'-'+ev.n+' frutas','#ffd54f',1.2);sfx.special();}}}
   else if (m.t==='cmd'){ if (App.mode==='host') hostCommand(m.a); }
   else if (m.t==='hello'){ if (App.mode==='host' && App.game) send({t:'s', s:App.game.snapshot()}); }
 }
