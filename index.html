@@ -92,7 +92,7 @@ textarea{width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.2);bac
     <button class="inv" data-item="rainbow"><b>🌈 <span id="invRainbow">0</span></b>Arco-íris<small>Escolha uma cor</small></button>
   </div>
   <div id="relicEnergy" style="font-size:10px;text-align:center;opacity:.9">Energia individual — Você: <span id="relEnergy0">0</span>% · Parceiro: <span id="relEnergy1">0</span>%</div>
-  <div id="relicInfo" class="relicInfo">Toque em uma relíquia para ver o efeito. Com 100% de energia, selecione-a e toque em uma fruta.</div>
+  <div id="relicInfo" class="relicInfo">Toque em uma relíquia para ver o efeito. Com 25% de energia, selecione-a e toque em uma fruta.</div>
   <div id="relics"><button class="relic" data-relic="apple"><b>🍎 <span id="relApple">0</span></b>Maçã</button><button class="relic" data-relic="grape"><b>🍇 <span id="relGrape">0</span></b>Uva</button><button class="relic" data-relic="orange"><b>🍊 <span id="relOrange">0</span></b>Laranja</button><button class="relic" data-relic="kiwi"><b>🥝 <span id="relKiwi">0</span></b>Kiwi</button><button class="relic" data-relic="blueberry"><b>🫐 <span id="relBlueberry">0</span></b>Mirtilo</button></div>
 </div>
 <div id="overlay"></div>
@@ -176,7 +176,30 @@ class Game {
     }
   }
   newCell(){ return {id:this.nextId++, c:Math.floor(this.rng()*this.nc), s:0, o:0, hp:0}; }
-  ensureMove(){if(this.hasMove())return;this.reshuffle();if(this.hasMove())return;for(let i=0;i<this.grid.length;i++){const g=this.grid[i];if(!g||g.o===1||g.o===3||g.c<0)continue;const c=i%COLS;for(const j of [c<COLS-1?i+1:-1,i+COLS<this.grid.length?i+COLS:-1]){const h=j>=0?this.grid[j]:null;if(h&&h.o!==1&&h.o!==3&&h.c>=0){g.c=h.c;return;}}}}
+  ensureMove(){
+    if(this.hasMove())return;
+    this.reshuffle();
+    if(this.hasMove())return;
+    // Garante ao menos um par adjacente jogável, mesmo com pedras/caixas na fase 12+.
+    for(let i=0;i<this.grid.length;i++){
+      const a=this.grid[i];
+      if(!a||a.o===1||a.o===3||a.c<0)continue;
+      const c=i%COLS;
+      for(const j of [c<COLS-1?i+1:-1,i+COLS<this.grid.length?i+COLS:-1]){
+        if(j<0)continue;
+        const b=this.grid[j];
+        if(b&&b.o!==1&&b.o!==3&&b.c>=0){b.c=a.c;return;}
+      }
+    }
+    // Caso extremo: reconfigura duas casas livres sem remover os obstáculos.
+    const free=this.grid.map((g,i)=>({g,i})).filter(x=>x.g&&x.g.o!==1&&x.g.o!==3&&x.g.c>=0);
+    for(let a=0;a<free.length;a++)for(let b=a+1;b<free.length;b++){
+      const x=free[a].i,y=free[b].i;
+      if(Math.abs(x%COLS-y%COLS)+Math.abs(Math.floor(x/COLS)-Math.floor(y/COLS))===1){
+        free[b].g.c=free[a].g.c;return;
+      }
+    }
+  }
   hasMove(){
     for (let i=0;i<this.grid.length;i++){
       const g = this.grid[i]; if (g.o===3 || g.o===1 || g.c<0) continue; if (g.s) return true;
@@ -272,7 +295,7 @@ class Game {
       this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;
       if(this.level%5===0) for(let k=0;k<2;k++) this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;
     } else if (this.moves <= 0) this.status = 'lost';
-    else if (!this.hasMove()) this.reshuffle();
+    else if (!this.hasMove()) this.ensureMove();
     return {by:player, at:[i%COLS,(i/COLS)|0], pts, duo, n:removed.size, g:groupSize, made:madeId, rem};
   }
   gravity(){
@@ -324,7 +347,7 @@ class Game {
     return {type,at:[i%COLS,(i/COLS)|0],n:actual.length,pts:points};
   }
   awardRelic(){if(this.level%5!==0)return;const keys=['apple','grape','orange','kiwi','blueberry'];const k=keys[(Math.floor(this.level/5)-1)%5];this.relics[k]=Math.min(4,(this.relics[k]||0)+1);}
-  useRelic(key,id,player=0){if(this.status!=='play'||(this.energy[player]||0)<100||!this.relics[key])return null;const i=this.indexOfId(id);if(i<0||!this.grid[i]||this.grid[i].c<0||this.grid[i].o===1||this.grid[i].o===3)return null;const lv=this.relics[key],r=(i/COLS)|0,c=i%COLS,rm=new Set();if(key==='apple')this.moves+=Math.min(5,lv+1);if(key==='grape'){const d=lv===1?1:lv===2?2:lv===3?2:3;for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)if(Math.abs(y-r)<=d&&Math.abs(x-c)<=d)rm.add(y*COLS+x);}if(key==='orange'){const n=lv>=3?1:0;for(let y=Math.max(0,r-n);y<=Math.min(ROWS-1,r+n);y++)for(let x=0;x<COLS;x++)rm.add(y*COLS+x);if(lv>=2)for(let x=Math.max(0,c-(lv===4?1:0));x<=Math.min(COLS-1,c+(lv===4?1:0));x++)for(let y=0;y<ROWS;y++)rm.add(y*COLS+x);}if(key==='kiwi'){this.scoreBoost=lv>=3?3:2;this.boostCombos=lv===4?6:lv===3?4:lv===2?5:3;}if(key==='blueberry'){const colors=[this.grid[i].c];if(lv>=3)for(const g of this.grid)if(g&&g.c>=0&&!colors.includes(g.c)&&colors.length<(lv===4?3:2))colors.push(g.c);for(let j=0;j<this.grid.length;j++)if(this.grid[j]&&colors.includes(this.grid[j].c))rm.add(j);}const a=[...rm].filter(j=>this.grid[j]&&this.grid[j].c>=0&&this.grid[j].o!==1&&this.grid[j].o!==3);for(const j of a)this.grid[j]=null;const pts=a.length*8;this.gravity();this.score+=pts;this.energy[player]=0;return {key,at:[c,r],n:a.length,pts,player};}
+  useRelic(key,id,player=0){if(this.status!=='play'||(this.energy[player]||0)<25||!this.relics[key])return null;const i=this.indexOfId(id);if(i<0||!this.grid[i]||this.grid[i].c<0||this.grid[i].o===1||this.grid[i].o===3)return null;const lv=this.relics[key],r=(i/COLS)|0,c=i%COLS,rm=new Set();if(key==='apple')this.moves+=Math.min(5,lv+1);if(key==='grape'){const d=lv===1?1:lv===2?2:lv===3?2:3;for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)if(Math.abs(y-r)<=d&&Math.abs(x-c)<=d)rm.add(y*COLS+x);}if(key==='orange'){const n=lv>=3?1:0;for(let y=Math.max(0,r-n);y<=Math.min(ROWS-1,r+n);y++)for(let x=0;x<COLS;x++)rm.add(y*COLS+x);if(lv>=2)for(let x=Math.max(0,c-(lv===4?1:0));x<=Math.min(COLS-1,c+(lv===4?1:0));x++)for(let y=0;y<ROWS;y++)rm.add(y*COLS+x);}if(key==='kiwi'){this.scoreBoost=lv>=3?3:2;this.boostCombos=lv===4?6:lv===3?4:lv===2?5:3;}if(key==='blueberry'){const colors=[this.grid[i].c];if(lv>=3)for(const g of this.grid)if(g&&g.c>=0&&!colors.includes(g.c)&&colors.length<(lv===4?3:2))colors.push(g.c);for(let j=0;j<this.grid.length;j++)if(this.grid[j]&&colors.includes(this.grid[j].c))rm.add(j);}const a=[...rm].filter(j=>this.grid[j]&&this.grid[j].c>=0&&this.grid[j].o!==1&&this.grid[j].o!==3);for(const j of a)this.grid[j]=null;const pts=a.length*8;this.gravity();this.score+=pts;this.energy[player]=0;return {key,at:[c,r],n:a.length,pts,player};}
   snapshot(){
     return {lv:this.level, mv:this.moves, tg:this.target, sc:this.score, ps:this.ps.slice(), inv:{...this.inventory},relics:{...this.relics},energy:this.energy.slice(),scoreBoost:this.scoreBoost,boostCombos:this.boostCombos,
             st:this.status, nc:this.nc, solo:this.solo, nextId:this.nextId, rng:this.rng.getState(),
@@ -336,6 +359,7 @@ class Game {
     game.status=s.st; game.nc=s.nc; game.nextId=s.nextId||1; game.inventory={rocket:0,bomb:0,rainbow:0,...(s.inv||{})};game.relics={apple:0,grape:0,orange:0,kiwi:0,blueberry:0,...(s.relics||{})};game.energy=Array.isArray(s.energy)?s.energy.slice(0,2):[s.energy||0,0];while(game.energy.length<2)game.energy.push(0);game.scoreBoost=s.scoreBoost||0;game.boostCombos=s.boostCombos||0;
     game.grid=s.g.map(e=>({id:e[0],c:e[1],s:e[2],o:e[3]||0,hp:e[4]||0}));
     if (s.rng!==undefined) game.rng.setState(s.rng);
+    if(game.status==='play')game.ensureMove();
     return game;
   }
 }
@@ -688,7 +712,7 @@ function doUseItem(type,id){
 document.querySelectorAll('.inv').forEach(b=>b.addEventListener('click',()=>{unlockAudio();const type=b.dataset.item;if(!(App.snap&&App.snap.inv&&App.snap.inv[type]>0))return;App.selectedItem=App.selectedItem===type?null:type;updateHUD(App.snap);}));
 function doUseRelic(key,id){if(App.mode==='guest'){App.selectedRelic=null;updateHUD(App.snap);send({t:'useRelic',key,id,player:App.me});return;}const ev=App.game&&App.game.useRelic(key,id,App.me);if(!ev){sfx.nope();return;}App.selectedRelic=null;const snap=App.game.snapshot();if(App.mode==='host')send({t:'s',s:snap});present(snap);addFloater(ev.at[0],ev.at[1],ev.key==='apple'?'+jogadas':'-'+ev.n+' frutas','#ffd54f',1.2);sfx.special();}
 const RELIC_INFO={apple:'🍎 Maçã: adiciona jogadas. Evolução: concede mais jogadas extras.',grape:'🍇 Uva: explode frutas em uma área ao redor do ponto escolhido. Evolução: aumenta o alcance.',orange:'🍊 Laranja: limpa linhas e colunas. Evolução: atinge mais linhas e colunas.',kiwi:'🥝 Kiwi: multiplica os pontos das próximas combinações. Evolução: aumenta o multiplicador e a duração.',blueberry:'🫐 Mirtilo: elimina frutas da cor escolhida. Evolução: pode eliminar até 3 cores.'};
-document.querySelectorAll('.relic').forEach(b=>b.addEventListener('click',()=>{unlockAudio();const k=b.dataset.relic,lv=(App.snap&&App.snap.relics&&App.snap.relics[k])||0;const energy=App.snap?(Array.isArray(App.snap.energy)?App.snap.energy[App.me]||0:App.snap.energy||0):0;$('relicInfo').textContent=RELIC_INFO[k]+' Nível '+lv+'/4. Energia deste jogador: '+energy+'%. '+(energy>=100?'Toque novamente para selecionar e depois escolha uma fruta.':'A energia é carregada pelas frutas que você estoura.');if(!App.snap||!lv||energy<100)return;App.selectedRelic=App.selectedRelic===k?null:k;App.selectedItem=null;updateHUD(App.snap);}));
+document.querySelectorAll('.relic').forEach(b=>b.addEventListener('click',()=>{unlockAudio();const k=b.dataset.relic,lv=(App.snap&&App.snap.relics&&App.snap.relics[k])||0;const energy=App.snap?(Array.isArray(App.snap.energy)?App.snap.energy[App.me]||0:App.snap.energy||0):0;$('relicInfo').textContent=RELIC_INFO[k]+' Nível '+lv+'/4. Energia deste jogador: '+energy+'%. '+(energy>=25?'Toque novamente para selecionar e depois escolha uma fruta.':'A energia é carregada pelas frutas que você estoura. Precisa de 25%.');if(!App.snap||!lv||energy<100)return;App.selectedRelic=App.selectedRelic===k?null:k;App.selectedItem=null;updateHUD(App.snap);}));
 function doTap(id, player, sig){
   if (App.mode==='guest'){ send({t:'tap', id, sig}); return; }
   const ev = App.game.tap(id, player, performance.now(), sig);
