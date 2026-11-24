@@ -648,6 +648,7 @@ ov.addEventListener('click', async e=>{
   else if (a==='menu'){ resetNet(); showMenu(); }
   else if (a==='next' || a==='retry') command(a);
   else if (a==='copyOut') copyText($('codeOut'));
+  else if (a==='copyRoom') { const code=$('roomCode').textContent; if(navigator.clipboard) navigator.clipboard.writeText(code).then(()=>setLobbyMsg('Código copiado!')); else setLobbyMsg('Anote o código: '+code); }
   else if (a==='shareOut') shareText($('codeOut'));
   else if (a==='hostConnect') hostConnect();
   else if (a==='guestGen') guestGen();
@@ -785,63 +786,53 @@ function shareText(el){
 }
 function setLobbyMsg(t,err){ const s=$('st'); if (s){ s.textContent=t; s.className='hint'+(err?' err':''); } }
 
+function roomCode(){const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';let out='';for(let i=0;i<5;i++)out+=chars[Math.floor(Math.random()*chars.length)];return out;}
 async function lobbyHost(){
   resetNet(); App.mode='host';
-  showOverlay(`<h2>Criar sala</h2>
-    <p><b>1.</b> Mande este código para o parceiro (WhatsApp, por exemplo):</p>
-    <textarea id="codeOut" readonly rows="4">Gerando código…</textarea>
-    <div class="row"><button class="btn" data-act="copyOut">Copiar</button><button class="btn" data-act="shareOut">Compartilhar</button></div>
-    <p><b>2.</b> Cole aqui a resposta que ele te enviar:</p>
-    <textarea id="codeIn" rows="3" placeholder="Cole a resposta aqui"></textarea>
-    <button class="btn pri" data-act="hostConnect">Conectar</button>
-    <p id="st" class="hint"></p>
-    <button class="link" data-act="menu">Voltar</button>`);
+  const code=roomCode();
+  showOverlay(`<h2>Criar sala</h2><p>Compartilhe este código com quem vai jogar com você:</p>
+    <div style="font-size:38px;font-weight:900;letter-spacing:8px;color:#ffd54f;padding:12px" id="roomCode">${code}</div>
+    <button class="btn pri" data-act="copyRoom">Copiar código</button>
+    <p id="st" class="hint">Preparando sala na rede Wi-Fi…</p>
+    <p class="hint">O outro celular deve escolher “Entrar na sala” e digitar os 5 caracteres. Não precisa de internet.</p>
+    <button class="link" data-act="menu">Cancelar</button>`);
   try{
-    const pc = App.pc = newPC();
-    setupDC(pc.createDataChannel('game'));
-    await pc.setLocalDescription(await pc.createOffer());
-    await waitIce(pc);
-    $('codeOut').value = await pack({t:'offer', sdp:pc.localDescription.sdp});
-  }catch(e){ setLobbyMsg('Erro ao criar a sala: '+e.message, true); }
+    const pc=App.pc=newPC();setupDC(pc.createDataChannel('game'));
+    await pc.setLocalDescription(await pc.createOffer());await waitIce(pc);
+    if(!window.AndroidLan) throw new Error('Esta conexão automática funciona no aplicativo Android instalado.');
+    window.AndroidLan.host(code,pc.localDescription.sdp);
+    setLobbyMsg('Sala '+code+' aberta. Aguardando o parceiro…');
+  }catch(e){setLobbyMsg('Erro ao criar sala: '+e.message,true);}
 }
-async function hostConnect(){
-  try{
-    const o = await unpack($('codeIn').value);
-    if (o.t!=='answer') throw new Error('Esse é o código da sala, não a resposta do parceiro.');
-    setLobbyMsg('Conectando…');
-    await App.pc.setRemoteDescription({type:'answer', sdp:o.sdp});
-  }catch(e){ setLobbyMsg(e.message, true); }
-}
-function lobbyJoin(){
-  resetNet(); App.mode='guest';
-  showOverlay(`<h2>Entrar na sala</h2>
-    <p><b>1.</b> Cole o código que o anfitrião te enviou:</p>
-    <textarea id="codeIn" rows="4" placeholder="Cole o código aqui"></textarea>
-    <button class="btn pri" data-act="guestGen">Gerar resposta</button>
-    <div id="guestOut" style="display:none">
-      <p><b>2.</b> Mande esta resposta de volta para o anfitrião:</p>
-      <textarea id="codeOut" readonly rows="4"></textarea>
-      <div class="row"><button class="btn" data-act="copyOut">Copiar</button><button class="btn" data-act="shareOut">Compartilhar</button></div>
-      <p class="hint">Depois que ele colar a resposta, o jogo começa sozinho.</p>
-    </div>
-    <p id="st" class="hint"></p>
+async function lobbyJoin(){
+  resetNet();App.mode='guest';
+  showOverlay(`<h2>Entrar na sala</h2><p>Digite o código de 5 caracteres:</p>
+    <input id="roomInput" maxlength="5" autocomplete="off" autocapitalize="characters" placeholder="Ex.: A7K2P" style="width:100%;padding:15px;text-align:center;font-size:26px;letter-spacing:7px;border-radius:12px;border:1px solid #ffffff55;background:#170d30;color:white;text-transform:uppercase">
+    <button class="btn pri" data-act="guestGen">Procurar sala</button>
+    <p id="st" class="hint">Os dois celulares precisam estar na mesma rede Wi-Fi.</p>
     <button class="link" data-act="menu">Voltar</button>`);
 }
 async function guestGen(){
-  try{
-    const o = await unpack($('codeIn').value);
-    if (o.t!=='offer') throw new Error('Esse é o código de resposta; cole o código da sala.');
-    setLobbyMsg('Gerando resposta…');
-    const pc = App.pc = newPC();
-    pc.ondatachannel = e => setupDC(e.channel);
-    await pc.setRemoteDescription({type:'offer', sdp:o.sdp});
-    await pc.setLocalDescription(await pc.createAnswer());
-    await waitIce(pc);
-    $('codeOut').value = await pack({t:'answer', sdp:pc.localDescription.sdp});
-    $('guestOut').style.display = 'block';
-    setLobbyMsg('Aguardando o anfitrião conectar…');
-  }catch(e){ setLobbyMsg(e.message, true); }
+  const code=($('roomInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(!/^[A-HJ-NP-Z2-9]{5}$/.test(code)){setLobbyMsg('Digite os 5 caracteres do código.',true);return;}
+  if(!window.AndroidLan){setLobbyMsg('A conexão automática exige o aplicativo Android instalado.',true);return;}
+  setLobbyMsg('Procurando a sala '+code+' na rede local…');
+  window.AndroidLan.join(code);
 }
+window.onLanOffer=async function(sdp){
+  try{
+    const pc=App.pc=newPC();pc.ondatachannel=e=>setupDC(e.channel);
+    await pc.setRemoteDescription({type:'offer',sdp});
+    await pc.setLocalDescription(await pc.createAnswer());
+    window.AndroidLan.answer(pc.localDescription.sdp);
+    setLobbyMsg('Resposta enviada. Conectando…');
+  }catch(e){setLobbyMsg('Erro ao entrar: '+e.message,true);}
+};
+window.onLanAnswer=async function(sdp){
+  try{await App.pc.setRemoteDescription({type:'answer',sdp});setLobbyMsg('Conectando ao parceiro…');}
+  catch(e){setLobbyMsg('Erro na resposta: '+e.message,true);}
+};
+
 
 /* ---------- início ---------- */
 window.FD = {Game, App, sprites, floodIdx, present, startSolo};
