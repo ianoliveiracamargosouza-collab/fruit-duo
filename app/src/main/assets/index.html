@@ -290,10 +290,10 @@ class Game {
     this.moves--;const appleLv=this.relics.apple||0,appleChance=[0,.05,.10,.15,.20,.25][Math.min(5,appleLv)];if(appleLv&&this.rng()<appleChance)this.moves++;
     this.score += pts; this.ps[player] += pts;
     if (this.score >= this.target) {
-      this.status = 'won'; this.score += (this.level%5===0?2000:500); this.awardRelic();
+      this.status = 'won'; this.score += (this.level%3===0?2000:500); this.awardRelic();
       const pool=['rocket','bomb','rainbow'];
       this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;
-      if(this.level%5===0) for(let k=0;k<2;k++) this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;
+      if(this.level%3===0) for(let k=0;k<2;k++) this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;
     } else if (this.moves <= 0) this.status = 'lost';
     else if (!this.hasMove()) this.ensureMove();
     return {by:player, at:[i%COLS,(i/COLS)|0], pts, duo, n:removed.size, g:groupSize, made:madeId, rem};
@@ -336,10 +336,10 @@ class Game {
     for(const j of actual) this.grid[j]=null;
     this.gravity(); this.score+=points;
 
-    if(this.score>=this.target){this.status='won';this.score+=(this.level%5===0?2000:500);this.awardRelic();const pool=['rocket','bomb','rainbow'];this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;if(this.level%5===0)for(let k=0;k<2;k++)this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;}
+    if(this.score>=this.target){this.status='won';this.score+=(this.level%3===0?2000:500);this.awardRelic();const pool=['rocket','bomb','rainbow'];this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;if(this.level%3===0)for(let k=0;k<2;k++)this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;}
     return {type,at:[i%COLS,(i/COLS)|0],n:actual.length,pts:points};
   }
-  awardRelic(){if(this.level%5!==0)return;const keys=['apple','grape','orange','kiwi','blueberry'];const k=keys[(Math.floor(this.level/5)-1)%5];this.relics[k]=Math.min(5,(this.relics[k]||0)+1);
+  awardRelic(){if(this.level%3!==0)return;const keys=['apple','grape','orange','kiwi','blueberry'];const k=keys[(Math.floor(this.level/3)-1)%5];this.relics[k]=Math.min(5,(this.relics[k]||0)+1);
     const eligible=['rocket','bomb','rainbow'].filter(type=>(this.itemLevels[type]||1)<5),chance=eligible.length===1?1:eligible.length===2?0.5:eligible.length===3?0.25:0;
     for(const type of eligible)if(this.rng()<chance)this.itemLevels[type]=Math.min(5,(this.itemLevels[type]||1)+1);
   }
@@ -631,8 +631,8 @@ const BOSS_VISUALS = [
 ];
 function updateBossBanner(level){
   const panel=$('bossBanner'); if(!panel)return;
-  if(level%5!==0){panel.classList.remove('on');return;}
-  const index=(Math.floor(level/5)-1)%BOSS_VISUALS.length, boss=BOSS_VISUALS[index];
+  if(level%3!==0){panel.classList.remove('on');return;}
+  const index=(Math.floor(level/3)-1)%BOSS_VISUALS.length, boss=BOSS_VISUALS[index];
   $('bossAvatar').textContent=boss.emoji;
   $('bossAvatar').style.background='radial-gradient(circle at 35% 25%,#fff7c2,'+boss.tone+' 55%,#28104e 100%)';
   $('bossName').textContent=boss.name;
