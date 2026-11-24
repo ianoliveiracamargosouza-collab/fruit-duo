@@ -139,6 +139,7 @@ class Game {
     this.nextId = 1; this.lastAct = [-1e9,-1e9];
     this.inventory = {rocket:0,bomb:0,rainbow:0};
     this.relics={apple:0,grape:0,orange:0,kiwi:0,blueberry:0};
+    this.itemLevels={rocket:1,bomb:1,rainbow:1};
     this.start(1);
   }
   cfg(level){
@@ -315,14 +316,17 @@ class Game {
     const target=this.grid[i]; if(!target||target.c<0||target.o===1||target.o===3) return null;
     const remove=new Set();
     if(type==='rocket'){
-      const row=(i/COLS)|0,col=i%COLS;
-      for(let c=0;c<COLS;c++) remove.add(row*COLS+c);
-      for(let r=0;r<ROWS;r++) remove.add(r*COLS+col);
+      const row=(i/COLS)|0,col=i%COLS,rad=Math.max(0,Math.min(4,(this.itemLevels.rocket||1)-1));
+      for(let r=Math.max(0,row-rad);r<=Math.min(ROWS-1,row+rad);r++) for(let c=0;c<COLS;c++) remove.add(r*COLS+c);
+      for(let c=Math.max(0,col-rad);c<=Math.min(COLS-1,col+rad);c++) for(let r=0;r<ROWS;r++) remove.add(r*COLS+c);
     } else if(type==='bomb'){
-      const row=(i/COLS)|0,col=i%COLS;
-      for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(Math.abs(r-row)+Math.abs(c-col)<=2) remove.add(r*COLS+c);
+      const row=(i/COLS)|0,col=i%COLS,rad=1+(this.itemLevels.bomb||1);
+      for(let r=0;r<ROWS;r++) for(let c=0;c<COLS;c++) if(Math.abs(r-row)+Math.abs(c-col)<=rad) remove.add(r*COLS+c);
     } else if(type==='rainbow'){
-      const color=target.c; for(let j=0;j<this.grid.length;j++) if(this.grid[j]&&this.grid[j].c===color&&this.grid[j].o!==1&&this.grid[j].o!==3) remove.add(j);
+      const color=target.c,lv=Math.max(1,Math.min(5,this.itemLevels.rainbow||1));
+      const counts=new Map();for(const g of this.grid)if(g&&g.c>=0&&g.o!==1&&g.o!==3)counts.set(g.c,(counts.get(g.c)||0)+1);
+      const colors=[...counts.keys()].sort((a,b)=>a===color?-1:b===color?1:(counts.get(b)-counts.get(a))).slice(0,lv);
+      for(let j=0;j<this.grid.length;j++) if(this.grid[j]&&colors.includes(this.grid[j].c)&&this.grid[j].o!==1&&this.grid[j].o!==3) remove.add(j);
     } else return null;
     const actual=[...remove].filter(j=>this.grid[j]&&this.grid[j].c>=0&&this.grid[j].o!==1&&this.grid[j].o!==3);
     if(!actual.length) return null;
@@ -333,16 +337,19 @@ class Game {
     if(this.score>=this.target){this.status='won';this.awardRelic();const pool=['rocket','bomb','rainbow'];this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;if(this.level%5===0)for(let k=0;k<2;k++)this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;}
     return {type,at:[i%COLS,(i/COLS)|0],n:actual.length,pts:points};
   }
-  awardRelic(){if(this.level%5!==0)return;const keys=['apple','grape','orange','kiwi','blueberry'];const k=keys[(Math.floor(this.level/5)-1)%5];this.relics[k]=Math.min(5,(this.relics[k]||0)+1);}
+  awardRelic(){if(this.level%5!==0)return;const keys=['apple','grape','orange','kiwi','blueberry'];const k=keys[(Math.floor(this.level/5)-1)%5];this.relics[k]=Math.min(5,(this.relics[k]||0)+1);
+    const owned=['rocket','bomb','rainbow'].filter(type=>(this.inventory[type]||0)>0),chance=owned.length===1?1:owned.length===2?0.5:owned.length===3?0.25:0;
+    for(const type of owned)if((this.itemLevels[type]||1)<5&&this.rng()<chance)this.itemLevels[type]=Math.min(5,(this.itemLevels[type]||1)+1);
+  }
   snapshot(){
-    return {lv:this.level, mv:this.moves, tg:this.target, sc:this.score, ps:this.ps.slice(), inv:{...this.inventory},relics:{...this.relics},
+    return {lv:this.level, mv:this.moves, tg:this.target, sc:this.score, ps:this.ps.slice(), inv:{...this.inventory},relics:{...this.relics},itemLevels:{...this.itemLevels},
             st:this.status, nc:this.nc, solo:this.solo, nextId:this.nextId, rng:this.rng.getState(),
             g:this.grid.map(g=>g?[g.id,g.c,g.s,g.o||0,g.hp||0]:null)};
   }
   static restore(s){
     const game = new Game(1, !!s.solo);
     game.level=s.lv; game.moves=s.mv; game.target=s.tg; game.score=s.sc; game.ps=s.ps.slice();
-    game.status=s.st; game.nc=s.nc; game.nextId=s.nextId||1; game.inventory={rocket:0,bomb:0,rainbow:0,...(s.inv||{})};game.relics={apple:0,grape:0,orange:0,kiwi:0,blueberry:0,...(s.relics||{})};
+    game.status=s.st; game.nc=s.nc; game.nextId=s.nextId||1; game.inventory={rocket:0,bomb:0,rainbow:0,...(s.inv||{})};game.relics={apple:0,grape:0,orange:0,kiwi:0,blueberry:0,...(s.relics||{})};game.itemLevels={rocket:1,bomb:1,rainbow:1,...(s.itemLevels||{})};
     game.grid=s.g.map(e=>e?({id:e[0],c:e[1],s:e[2],o:e[3]||0,hp:e[4]||0}):null);
     if (s.rng!==undefined) game.rng.setState(s.rng);
     if(game.status==='play')game.ensureMove();
@@ -634,7 +641,8 @@ function updateBossBanner(level){
 function updateHUD(s){
   $('lv').textContent = s.lv; $('mv').textContent = s.mv; updateBossBanner(s.lv);
   const inv=s.inv||{rocket:0,bomb:0,rainbow:0};const rel=s.relics||{};for(const k of ['apple','grape','orange','kiwi','blueberry'])$('rel'+k[0].toUpperCase()+k.slice(1)).textContent=rel[k]||0;document.querySelectorAll('.relic').forEach(b=>{b.disabled=!((rel[b.dataset.relic]||0)>0);b.classList.remove('selected');}); $('invRocket').textContent=inv.rocket||0; $('invBomb').textContent=inv.bomb||0; $('invRainbow').textContent=inv.rainbow||0;
-  document.querySelectorAll('.inv').forEach(b=>{const type=b.dataset.item;b.disabled=!(inv[type]>0);b.classList.toggle('selected',App.selectedItem===type);});
+  const itemLevels=s.itemLevels||{rocket:1,bomb:1,rainbow:1};const itemDesc={rocket:'Cruza linhas e colunas',bomb:'Explosão em área',rainbow:'Remove cores diferentes'};
+  document.querySelectorAll('.inv').forEach(b=>{const type=b.dataset.item,lv=Math.max(1,Math.min(5,itemLevels[type]||1));b.disabled=!(inv[type]>0);b.classList.toggle('selected',App.selectedItem===type);const small=b.querySelector('small');if(small)small.textContent='Nv.'+lv+'/5 · '+itemDesc[type];});
   $('sc').textContent = s.sc; $('tg').textContent = s.tg;
   const tot = Math.max(s.tg, s.ps[0]+s.ps[1]);
   $('b0').style.width = (s.ps[0]/tot*100)+'%'; $('b1').style.width = (s.ps[1]/tot*100)+'%';
@@ -694,7 +702,7 @@ function doUseItem(type,id){
   const ev=App.game&&App.game.useItem(type,id,App.me);if(!ev){sfx.nope();return;}
   App.selectedItem=null;const snap=App.game.snapshot();if(App.mode==='host')send({t:'s',s:snap});present(snap);addFloater(ev.at[0],ev.at[1],'-'+ev.n+' 🍓','#ffd54f',1.15);sfx.special();
 }
-document.querySelectorAll('.inv').forEach(b=>b.addEventListener('click',()=>{unlockAudio();const type=b.dataset.item;if(!(App.snap&&App.snap.inv&&App.snap.inv[type]>0))return;App.selectedItem=App.selectedItem===type?null:type;updateHUD(App.snap);}));
+document.querySelectorAll('.inv').forEach(b=>b.addEventListener('click',()=>{unlockAudio();const type=b.dataset.item;if(!(App.snap&&App.snap.inv&&App.snap.inv[type]>0))return;App.selectedItem=App.selectedItem===type?null:type;updateHUD(App.snap);const lv=((App.snap.itemLevels||{})[type]||1),desc={rocket:'Aumenta a quantidade de linhas e colunas atingidas.',bomb:'Aumenta o raio da explosão ao redor do alvo.',rainbow:'A cada nível, remove mais uma cor de frutas.'};$('relicInfo').textContent='Item '+({rocket:'🚀 Foguete',bomb:'💣 Bomba',rainbow:'🌈 Arco-íris'}[type])+' — Nível '+lv+'/5. '+desc[type]+' A evolução acontece ao derrotar chefes.';}));
 const RELIC_INFO={apple:'🍎 Maçã — Reserva de jogadas: chance de não gastar a jogada usada.',grape:'🍇 Uva — Reação em cadeia: chance de explosão 3×3 ao redor do toque.',orange:'🍊 Laranja — Colheita dupla: chance de dobrar os pontos do grupo.',kiwi:'🥝 Kiwi — Cascata verde: chance de remover automaticamente um segundo grupo próximo.',blueberry:'🫐 Mirtilo — Chuva de mirtilos: chance de transformar frutas novas que caem em mirtilos.'};document.querySelectorAll('.relic').forEach(b=>b.addEventListener('click',()=>{unlockAudio();const k=b.dataset.relic,lv=(App.snap&&App.snap.relics&&App.snap.relics[k])||0,ch={apple:[0,5,10,15,20,25],grape:[0,5,10,15,20,25],orange:[0,10,20,30,40,50],kiwi:[0,5,10,15,20,25],blueberry:[0,10,20,30,40,50]};$('relicInfo').textContent=RELIC_INFO[k]+' Nível '+lv+'/5. Chance atual: '+(ch[k][Math.min(5,lv)]||0)+'%. Efeito passivo: funciona automaticamente.';}));
 function doTap(id, player, sig){
   if (App.mode==='guest'){ send({t:'tap', id, sig}); return; }
