@@ -329,7 +329,7 @@ class Game {
     this.inventory[type]--; const points=actual.length*8;
     for(const j of actual) this.grid[j]=null;
     this.gravity(); this.score+=points;
-    this.energy[player]=Math.min(100,(this.energy[player]||0)+actual.length*2);
+
     if(this.score>=this.target){this.status='won';this.awardRelic();const pool=['rocket','bomb','rainbow'];this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;if(this.level%5===0)for(let k=0;k<2;k++)this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;}
     return {type,at:[i%COLS,(i/COLS)|0],n:actual.length,pts:points};
   }
@@ -607,7 +607,7 @@ function frame(now){
 /* ---------- estado do app ---------- */
 const App = {
   mode:'menu',      // menu | solo | host | guest
-  me:0, game:null, snap:null, idxById:new Map(), selectedItem:null, selectedRelic:null,
+  me:0, game:null, snap:null, idxById:new Map(), selectedItem:null,
   status:'play', dc:null, pc:null, lastRx:0, hb:null, connected:false, resultTimer:null
 };
 const $ = id => document.getElementById(id);
