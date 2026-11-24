@@ -60,6 +60,16 @@ textarea{width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.2);bac
 .res b{display:block;font-size:22px}
 .big{font-size:44px;margin:0}
 .err{color:#ffb4b4}
+
+#bossBanner{display:none;align-items:center;gap:12px;flex-shrink:0;margin:2px 0 6px;padding:8px 12px;border:1px solid rgba(255,213,79,.55);border-radius:17px;background:linear-gradient(110deg,rgba(75,34,126,.96),rgba(31,14,65,.96));box-shadow:0 5px 18px rgba(0,0,0,.22);min-height:76px}
+#bossBanner.on{display:flex}
+.bossAvatar{width:62px;height:62px;flex:0 0 62px;border-radius:17px;display:grid;place-items:center;font-size:43px;line-height:1;background:radial-gradient(circle at 35% 25%,#fff7c2,#ffb64a 45%,#7435a7 78%);border:2px solid #ffd54f;box-shadow:0 0 14px rgba(255,213,79,.24)}
+.bossInfo{flex:1;min-width:0}
+.bossKicker{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:#ffd76a;font-weight:900}
+.bossName{font-size:17px;font-weight:950;line-height:1.15;text-shadow:0 2px 2px #210d45}
+.bossDesc{font-size:11px;opacity:.88;margin-top:3px}
+.bossTag{font-size:10px;font-weight:900;color:#35134f;background:#ffd76a;padding:5px 8px;border-radius:99px;white-space:nowrap}
+
 </style>
 </head>
 <body>
@@ -74,6 +84,7 @@ textarea{width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.2);bac
     <button id="snd" aria-label="Som">🔊</button>
   </header>
   <div id="players"></div>
+  <div id="bossBanner" aria-live="polite"><div class="bossAvatar" id="bossAvatar">🍎</div><div class="bossInfo"><div class="bossKicker">Chefe da fase</div><div class="bossName" id="bossName">Rei Maçã</div><div class="bossDesc" id="bossDesc">O rei chegou para desafiar a equipe!</div></div><div class="bossTag">CHEFE</div></div>
   <canvas id="board"></canvas>
   <div id="inventory" aria-label="Inventário">
     <button class="inv" data-item="rocket"><b>🚀 <span id="invRocket">0</span></b>Foguete<small>Linha + coluna</small></button>
@@ -580,8 +591,27 @@ const App = {
 };
 const $ = id => document.getElementById(id);
 
+
+const BOSS_VISUALS = [
+  {name:'Rei Maçã',emoji:'🍎👑',desc:'O rei das frutas chegou para desafiar a equipe!',tone:'#ef5350'},
+  {name:'Dragão de Uva',emoji:'🐉🍇',desc:'Um dragão roxo protege o reino das uvas!',tone:'#9c55d7'},
+  {name:'Laranja Colossal',emoji:'🍊💪',desc:'Força bruta e punhos cítricos!',tone:'#ff9d32'},
+  {name:'Guardião Kiwi',emoji:'🥝🛡️',desc:'O guerreiro kiwi defende seu território!',tone:'#8bc34a'},
+  {name:'Titã Mirtilo',emoji:'🫐👑',desc:'O titã azul desperta para a batalha!',tone:'#4778ed'}
+];
+function updateBossBanner(level){
+  const panel=$('bossBanner'); if(!panel)return;
+  if(level%5!==0){panel.classList.remove('on');return;}
+  const index=(Math.floor(level/5)-1)%BOSS_VISUALS.length, boss=BOSS_VISUALS[index];
+  $('bossAvatar').textContent=boss.emoji;
+  $('bossAvatar').style.background='radial-gradient(circle at 35% 25%,#fff7c2,'+boss.tone+' 55%,#28104e 100%)';
+  $('bossName').textContent=boss.name;
+  $('bossDesc').textContent=boss.desc;
+  panel.classList.add('on');
+}
+
 function updateHUD(s){
-  $('lv').textContent = s.lv; $('mv').textContent = s.mv;
+  $('lv').textContent = s.lv; $('mv').textContent = s.mv; updateBossBanner(s.lv);
   const inv=s.inv||{rocket:0,bomb:0,rainbow:0}; $('invRocket').textContent=inv.rocket||0; $('invBomb').textContent=inv.bomb||0; $('invRainbow').textContent=inv.rainbow||0;
   document.querySelectorAll('.inv').forEach(b=>{const type=b.dataset.item;b.disabled=!(inv[type]>0);b.classList.toggle('selected',App.selectedItem===type);});
   $('sc').textContent = s.sc; $('tg').textContent = s.tg;
