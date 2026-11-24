@@ -623,7 +623,7 @@ function updateBossBanner(level){
 
 function updateHUD(s){
   $('lv').textContent = s.lv; $('mv').textContent = s.mv; updateBossBanner(s.lv);
-  const inv=s.inv||{rocket:0,bomb:0,rainbow:0};const rel=s.relics||{};for(const k of ['apple','grape','orange','kiwi','blueberry'])$('rel'+k[0].toUpperCase()+k.slice(1)).textContent=rel[k]||0;const energies=Array.isArray(s.energy)?s.energy:[s.energy||0,0];$('relEnergy0').textContent=energies[App.me]||0;$('relEnergy1').textContent=energies[1-App.me]||0;document.querySelectorAll('.relic').forEach(b=>{b.disabled=!((rel[b.dataset.relic]||0)>0)||(energies[App.me]||0)<100;b.classList.toggle('selected',App.selectedRelic===b.dataset.relic);}); $('invRocket').textContent=inv.rocket||0; $('invBomb').textContent=inv.bomb||0; $('invRainbow').textContent=inv.rainbow||0;
+  const inv=s.inv||{rocket:0,bomb:0,rainbow:0};const rel=s.relics||{};for(const k of ['apple','grape','orange','kiwi','blueberry'])$('rel'+k[0].toUpperCase()+k.slice(1)).textContent=rel[k]||0;const energies=Array.isArray(s.energy)?s.energy:[s.energy||0,0];$('relEnergy0').textContent=energies[App.me]||0;$('relEnergy1').textContent=energies[1-App.me]||0;document.querySelectorAll('.relic').forEach(b=>{b.disabled=!((rel[b.dataset.relic]||0)>0);b.classList.toggle('selected',App.selectedRelic===b.dataset.relic);}); $('invRocket').textContent=inv.rocket||0; $('invBomb').textContent=inv.bomb||0; $('invRainbow').textContent=inv.rainbow||0;
   document.querySelectorAll('.inv').forEach(b=>{const type=b.dataset.item;b.disabled=!(inv[type]>0);b.classList.toggle('selected',App.selectedItem===type);});
   $('sc').textContent = s.sc; $('tg').textContent = s.tg;
   const tot = Math.max(s.tg, s.ps[0]+s.ps[1]);
@@ -858,7 +858,7 @@ function onConnected(){
 function onMessage(m){
   if (m.t==='s'){ if (App.mode==='guest'){ if (ov.classList.contains('on') && m.s.st==='play') hideOverlay(); present(m.s, m.e); } }
   else if (m.t==='tap'){ if (App.mode==='host') doTap(m.id, 1, m.sig); }
-  else if (m.t==='useItem'){if(App.mode==='host')doUseItem(m.type,m.id);}
+  else if (m.t==='useItem'){if(App.mode==='host'){const ev=App.game&&App.game.useItem(m.type,m.id,m.player===1?1:0);if(ev){const snap=App.game.snapshot();send({t:'s',s:snap});present(snap);addFloater(ev.at[0],ev.at[1],'-'+ev.n+' 🍓','#ffd54f',1.15);sfx.special();}}}
   else if (m.t==='useRelic'){if(App.mode==='host'){const ev=App.game&&App.game.useRelic(m.key,m.id,m.player===1?1:0);if(ev){const snap=App.game.snapshot();send({t:'s',s:snap});present(snap);addFloater(ev.at[0],ev.at[1],ev.key==='apple'?'+jogadas':'-'+ev.n+' frutas','#ffd54f',1.2);sfx.special();}}}
   else if (m.t==='cmd'){ if (App.mode==='host') hostCommand(m.a); }
   else if (m.t==='hello'){ if (App.mode==='host' && App.game) send({t:'s', s:App.game.snapshot()}); }
