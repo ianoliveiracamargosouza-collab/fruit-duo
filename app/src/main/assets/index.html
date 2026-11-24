@@ -1,0 +1,852 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#2a1658">
+<title>Fruta Duo</title>
+<style>
+:root{
+  --p0:#36d1dc; --p1:#ff6fae; --gold:#ffd54f;
+  --bg1:#4a2a8a; --bg2:#14092b; --ink:#fff;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg2);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-user-select:none;user-select:none;touch-action:manipulation}
+#app{position:fixed;inset:0;display:flex;flex-direction:column;
+  background:radial-gradient(120% 80% at 50% 0%,var(--bg1),var(--bg2));
+  padding:env(safe-area-inset-top) 10px env(safe-area-inset-bottom)}
+#hud{display:flex;align-items:center;gap:10px;padding:10px 2px 4px}
+.lv{font-size:13px;opacity:.85;line-height:1.1;text-align:center;min-width:44px}
+.lv b{display:block;font-size:22px}
+.goal{flex:1;min-width:0}
+.bar{height:16px;border-radius:99px;background:rgba(255,255,255,.14);overflow:hidden;display:flex}
+.bar i{display:block;height:100%;width:0;transition:width .35s ease}
+#b0{background:var(--p0)} #b1{background:var(--p1)}
+.gt{font-size:12px;margin-top:3px;opacity:.9;text-align:center}
+.mv{text-align:center;font-size:11px;opacity:.9;min-width:56px;line-height:1.05}
+.mv b{display:block;font-size:26px;color:var(--gold)}
+#snd{background:rgba(255,255,255,.12);border:0;color:#fff;border-radius:12px;width:38px;height:38px;font-size:18px}
+#players{display:flex;justify-content:center;gap:18px;font-size:13px;padding:2px 0 6px;min-height:22px}
+#players span{display:flex;align-items:center;gap:6px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+#board{flex:1;min-height:0;width:100%;display:block;touch-action:none;margin-bottom:8px}
+#overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(10,4,24,.72);backdrop-filter:blur(4px);padding:16px;overflow:auto}
+#overlay.on{display:flex}
+.card{width:100%;max-width:420px;background:linear-gradient(160deg,#3b2377,#241046);
+  border:1px solid rgba(255,255,255,.14);border-radius:22px;padding:22px 20px;
+  box-shadow:0 20px 60px rgba(0,0,0,.5);text-align:center}
+.card h1{margin:0 0 4px;font-size:34px;letter-spacing:.5px}
+.card h2{margin:0 0 10px;font-size:22px}
+.card p{margin:8px 0;line-height:1.4;font-size:14px}
+.sub{opacity:.85}
+.hint{opacity:.7;font-size:12px!important}
+.btn{display:block;width:100%;margin:10px 0 0;padding:14px;border:0;border-radius:14px;font-size:16px;font-weight:700;
+  background:rgba(255,255,255,.14);color:#fff}
+.btn.pri{background:linear-gradient(135deg,#ff8a3d,#ff4f8b)}
+.btn:active{transform:scale(.98)}
+.row{display:flex;gap:8px}.row .btn{margin-top:6px;padding:10px;font-size:14px}
+.link{background:none;border:0;color:#cdb9ff;margin-top:12px;font-size:14px;text-decoration:underline}
+textarea{width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.3);color:#fff;
+  padding:10px;font-size:12px;font-family:ui-monospace,Menlo,monospace;resize:none;-webkit-user-select:text;user-select:text}
+.res{display:flex;justify-content:center;gap:22px;margin:10px 0 4px;font-size:14px}
+.res b{display:block;font-size:22px}
+.big{font-size:44px;margin:0}
+.err{color:#ffb4b4}
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="hud">
+    <div class="lv">Fase<b id="lv">1</b></div>
+    <div class="goal">
+      <div class="bar"><i id="b0"></i><i id="b1"></i></div>
+      <div class="gt">Equipe <span id="sc">0</span> / <span id="tg">0</span></div>
+    </div>
+    <div class="mv"><b id="mv">0</b>jogadas</div>
+    <button id="snd" aria-label="Som">🔊</button>
+  </header>
+  <div id="players"></div>
+  <canvas id="board"></canvas>
+</div>
+<div id="overlay"></div>
+
+<script>
+'use strict';
+/* =========================================================
+   Fruta Duo — puzzle de frutas cooperativo para 2 jogadores
+   - Solo / mesmo celular (multitoque)
+   - 2 celulares via WebRTC direto (mesma rede Wi-Fi, sem servidor)
+   ========================================================= */
+const COLS = 8, ROWS = 9;
+const SP = {NONE:0, ROCKET_H:1, ROCKET_V:2, BOMB:3, RAINBOW:4};
+const P_COLOR = ['#36d1dc', '#ff6fae'];
+const FRUIT_COLOR = ['#e53935','#fb8c00','#8e24aa','#fdd835','#1e88e5','#7cb342'];
+const DUO_WINDOW = 1200;     // ms: toques dos dois dentro desse tempo = bônus DUO
+const DUO_MULT = 1.5;
+
+/* ---------- utilidades ---------- */
+function mulberry32(a){
+  let state = a >>> 0;
+  const fn = function(){ state = (state + 0x6D2B79F5) >>> 0; let t=state; t=Math.imul(t^t>>>15,1|t); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; };
+  fn.getState = ()=>state; fn.setState = v=>{ state=(v>>>0); };
+  return fn;
+}
+
+function floodIdx(getC, start){
+  const c0 = getC(start); if (c0 < 0) return [];
+  const seen = new Uint8Array(COLS*ROWS), out = [start], st = [start]; seen[start]=1;
+  while (st.length){
+    const i = st.pop(), c = i%COLS, r = (i/COLS)|0;
+    const nb = [];
+    if (c>0) nb.push(i-1); if (c<COLS-1) nb.push(i+1);
+    if (r>0) nb.push(i-COLS); if (r<ROWS-1) nb.push(i+COLS);
+    for (const j of nb) if (!seen[j] && getC(j)===c0){ seen[j]=1; out.push(j); st.push(j); }
+  }
+  return out;
+}
+
+/* ---------- regras do jogo (host / solo) ---------- */
+class Game {
+  constructor(seed, solo){
+    this.rng = mulberry32(seed || (Date.now() & 0x7fffffff));
+    this.solo = !!solo;   // sem parceiro não há bônus DUO, então a meta é menor
+    this.nextId = 1; this.lastAct = [-1e9,-1e9];
+    this.start(1);
+  }
+  cfg(level){
+    const nc = Math.min(6, 4 + Math.floor((level-1)/3));
+    const moves = Math.max(16, 26 - Math.floor((level-1)/2));
+    let perMove = Game.BASE_PER_MOVE + (level-1)*Game.STEP_PER_MOVE;
+    if (nc >= 6) perMove *= 0.88;   // com 6 cores fica mais difícil juntar grupos
+    const k = this.solo ? Game.SOLO_FACTOR : 1;
+    return {nc, moves, target: Math.round(moves*perMove*k/10)*10};
+  }
+  start(level){
+    const k = this.cfg(level);
+    this.level = level; this.nc = k.nc; this.moves = k.moves; this.target = k.target;
+    this.score = 0; this.ps = [0,0]; this.status = 'play';
+    this.grid = [];
+    do {
+      this.grid = [];
+      for (let i=0;i<COLS*ROWS;i++) this.grid.push(this.newCell());
+    } while (!this.hasMove());
+    this.placeObstacles();
+  }
+  placeObstacles(){
+    // Introdução gradual: caixas a partir da fase 4, gelo na 8 e pedras na 12.
+    const spots = this.level>=4 ? [11,20,43,52] : [];
+    for (const i of spots) if (this.grid[i] && !this.grid[i].s) {
+      this.grid[i] = {id:this.nextId++, c:-1, s:0, o:1, hp:2};
+    }
+    if (this.level>=8) for (const i of [6,17,30,49,62]) {
+      const g=this.grid[i]; if (g && g.c>=0 && !g.s) g.o=2;
+    }
+    if (this.level>=12) for (const i of [3,28,39,60]) {
+      this.grid[i] = {id:this.nextId++, c:-1, s:0, o:3, hp:0};
+    }
+  }
+  newCell(){ return {id:this.nextId++, c:Math.floor(this.rng()*this.nc), s:0, o:0, hp:0}; }
+  hasMove(){
+    for (let i=0;i<this.grid.length;i++){
+      const g = this.grid[i]; if (g.o===3 || g.o===1 || g.c<0) continue; if (g.s) return true;
+      const c = i%COLS;
+      if (c<COLS-1 && this.grid[i+1].o!==3 && this.grid[i+1].o!==1 && this.grid[i+1].c===g.c) return true;
+      if (i+COLS<this.grid.length && this.grid[i+COLS].o!==3 && this.grid[i+COLS].o!==1 && this.grid[i+COLS].c===g.c) return true;
+    }
+    return false;
+  }
+  indexOfId(id){ for (let i=0;i<this.grid.length;i++) if (this.grid[i].id===id) return i; return -1; }
+  mostCommonColor(){
+    const cnt = new Array(6).fill(0);
+    for (const g of this.grid) if (g.c>=0) cnt[g.c]++;
+    let best = 0; for (let i=1;i<6;i++) if (cnt[i]>cnt[best]) best = i;
+    return best;
+  }
+  expand(initial){
+    const out = new Set(initial), queue = [...initial];
+    while (queue.length){
+      const i = queue.pop(), cell = this.grid[i];
+      if (!cell || !cell.s) continue;
+      const c = i%COLS, r = (i/COLS)|0, add = [];
+      if (cell.s===SP.ROCKET_H) for (let cc=0;cc<COLS;cc++) add.push(r*COLS+cc);
+      else if (cell.s===SP.ROCKET_V) for (let rr=0;rr<ROWS;rr++) add.push(rr*COLS+c);
+      else if (cell.s===SP.BOMB){
+        for (let rr=0;rr<ROWS;rr++) for (let cc=0;cc<COLS;cc++)
+          if (Math.abs(rr-r)+Math.abs(cc-c) <= 2) add.push(rr*COLS+cc);
+      } else if (cell.s===SP.RAINBOW){
+        const col = this.mostCommonColor();
+        for (let j=0;j<this.grid.length;j++) if (this.grid[j].c===col) add.push(j);
+      }
+      for (const j of add) if (!out.has(j)){ out.add(j); queue.push(j); }
+    }
+    return out;
+  }
+  /* sig = c*10+s que o jogador viu; evita acionar algo que mudou no meio do caminho */
+  tap(id, player, now, sig){
+    if (this.status !== 'play') return null;
+    const i = this.indexOfId(id); if (i<0) return null;
+    const cell = this.grid[i];
+    if (sig !== undefined && sig !== cell.c*10+cell.s) return null;
+    if (cell.o===3) return null;
+    if (cell.o===1) {
+      cell.hp = Math.max(0,(cell.hp||2)-1);
+      if (!cell.hp) this.grid[i]=null;
+      this.moves--; this.score += 0;
+      if (this.moves<=0 && this.score<this.target) this.status='lost';
+      this.gravity();
+      return {by:player,at:[i%COLS,(i/COLS)|0],pts:0,duo:false,n:0,g:0,made:null,rem:[],obstacle:true};
+    }
+    let removed, pts, madeId = null, groupSize = 0;
+    if (!cell.s){
+      const grp = floodIdx(j => this.grid[j].s ? -1 : this.grid[j].c, i);
+      if (grp.length < 2) return null;
+      groupSize = grp.length;
+      let toRemove = grp;
+      if (grp.length >= 5){
+        toRemove = grp.filter(j => j!==i);
+        cell.c = -1;
+        cell.s = grp.length>=9 ? SP.RAINBOW : grp.length>=7 ? SP.BOMB
+               : (this.rng()<.5 ? SP.ROCKET_H : SP.ROCKET_V);
+        madeId = cell.id;
+      }
+      removed = this.expand(toRemove);
+      const chain = removed.size - toRemove.length;
+      pts = grp.length*10 + Math.max(0, grp.length-3)*10 + chain*15;
+    } else {
+      removed = this.expand([i]);
+      pts = removed.size*15;
+    }
+    let duo = false;
+    const other = 1-player;
+    if (now - this.lastAct[other] <= DUO_WINDOW){ duo = true; pts = Math.floor(pts*DUO_MULT); }
+    this.lastAct[player] = now;
+    // Obstáculos atingidos por uma combinação perdem uma camada de resistência.
+    const hit = new Set();
+    for (const j of removed) {
+      const c=j%COLS, r=(j/COLS)|0;
+      for (const n of [c>0?j-1:-1,c<COLS-1?j+1:-1,r>0?j-COLS:-1,r<ROWS-1?j+COLS:-1]) {
+        if (n>=0 && this.grid[n] && this.grid[n].o===1) hit.add(n);
+      }
+    }
+    const rem = [...removed].filter(j=>this.grid[j] && this.grid[j].o!==3 && this.grid[j].o!==1).map(j => [this.grid[j].id, this.grid[j].c, this.grid[j].s, j%COLS, (j/COLS)|0]);
+    for (const j of removed) if (this.grid[j] && this.grid[j].o!==3 && this.grid[j].o!==1) this.grid[j] = null;
+    for (const j of hit) { this.grid[j].hp--; if (this.grid[j].hp<=0) this.grid[j]=null; }
+    this.gravity();
+    this.moves--; this.score += pts; this.ps[player] += pts;
+    if (this.score >= this.target) this.status = 'won';
+    else if (this.moves <= 0) this.status = 'lost';
+    else if (!this.hasMove()) this.reshuffle();
+    return {by:player, at:[i%COLS,(i/COLS)|0], pts, duo, n:removed.size, g:groupSize, made:madeId, rem};
+  }
+  gravity(){
+    for (let c=0;c<COLS;c++){
+      let bottom=ROWS-1;
+      while (bottom>=0){
+        if (this.grid[bottom] && (this.grid[bottom].o===1 || this.grid[bottom].o===3)){ bottom--; continue; }
+        let top=bottom;
+        while (top>=0 && !(this.grid[top] && (this.grid[top].o===1 || this.grid[top].o===3))) top--;
+        const col=[];
+        for(let r=bottom;r>top;r--) if(this.grid[r*COLS+c]) col.push(this.grid[r*COLS+c]);
+        while(col.length<bottom-top) col.push(this.newCell());
+        for(let r=bottom,k=0;r>top;r--,k++) this.grid[r*COLS+c]=col[k];
+        bottom=top-1;
+      }
+    }
+  }
+  reshuffle(){
+    for (let tries=0; tries<50 && !this.hasMove(); tries++){
+      const idx = this.grid.map((g,i)=>i).filter(i=>!this.grid[i].s && !this.grid[i].o);
+      const cols = idx.map(i=>this.grid[i].c);
+      for (let k=cols.length-1;k>0;k--){ const j=Math.floor(this.rng()*(k+1)); [cols[k],cols[j]]=[cols[j],cols[k]]; }
+      idx.forEach((i,k)=>{ this.grid[i].c = cols[k]; });
+    }
+    if (!this.hasMove()) for (const g of this.grid) if (!g.s && !g.o) g.c = 0;
+  }
+  snapshot(){
+    return {lv:this.level, mv:this.moves, tg:this.target, sc:this.score, ps:this.ps.slice(),
+            st:this.status, nc:this.nc, solo:this.solo, nextId:this.nextId, rng:this.rng.getState(),
+            g:this.grid.map(g=>[g.id,g.c,g.s,g.o||0,g.hp||0])};
+  }
+  static restore(s){
+    const game = new Game(1, !!s.solo);
+    game.level=s.lv; game.moves=s.mv; game.target=s.tg; game.score=s.sc; game.ps=s.ps.slice();
+    game.status=s.st; game.nc=s.nc; game.nextId=s.nextId||1;
+    game.grid=s.g.map(e=>({id:e[0],c:e[1],s:e[2],o:e[3]||0,hp:e[4]||0}));
+    if (s.rng!==undefined) game.rng.setState(s.rng);
+    return game;
+  }
+}
+Game.BASE_PER_MOVE = 40;   // pontos por jogada exigidos na fase 1
+Game.STEP_PER_MOVE = 3;    // aumento por fase
+Game.SOLO_FACTOR = 0.75;   // meta reduzida no modo solo (sem bônus DUO)
+
+/* ---------- desenho das frutas ---------- */
+const TAU = Math.PI*2;
+function ball(g,x,y,r,c1,c2){
+  const gr = g.createRadialGradient(x-r*.35,y-r*.4,r*.1,x,y,r);
+  gr.addColorStop(0,c1); gr.addColorStop(1,c2);
+  g.fillStyle = gr; g.beginPath(); g.arc(x,y,r,0,TAU); g.fill();
+}
+function gloss(g,x,y,r){
+  g.fillStyle='rgba(255,255,255,.38)'; g.beginPath();
+  g.ellipse(x-r*.38,y-r*.42,r*.28,r*.16,-.6,0,TAU); g.fill();
+}
+function leaf(g,x,y,len,ang,col){
+  g.save(); g.translate(x,y); g.rotate(ang); g.fillStyle=col;
+  g.beginPath(); g.ellipse(len/2,0,len/2,len*.28,0,0,TAU); g.fill(); g.restore();
+}
+function star(g,x,y,ro,ri,col,rot){
+  g.fillStyle=col; g.beginPath();
+  for (let i=0;i<10;i++){ const a=rot+i*Math.PI/5-Math.PI/2, rr=i%2?ri:ro;
+    g[i?'lineTo':'moveTo'](x+Math.cos(a)*rr, y+Math.sin(a)*rr); }
+  g.closePath(); g.fill();
+}
+function drawFruit(g, kind, x, y, r){
+  switch(kind){
+    case 0: // maçã
+      ball(g,x,y+r*.08,r*.92,'#ff7a6e','#c62828');
+      g.strokeStyle='#5d4037'; g.lineWidth=r*.12; g.lineCap='round'; g.beginPath();
+      g.moveTo(x,y-r*.7); g.quadraticCurveTo(x+r*.05,y-r*1.0,x+r*.18,y-r*1.1); g.stroke();
+      leaf(g,x+r*.1,y-r*.88,r*.5,-.5,'#66bb6a'); gloss(g,x,y,r*.9); break;
+    case 1: // laranja
+      ball(g,x,y+r*.05,r*.92,'#ffcc80','#ef6c00');
+      leaf(g,x,y-r*.85,r*.45,-.9,'#7cb342');
+      g.fillStyle='rgba(255,255,255,.22)';
+      [[.3,.2],[-.4,.35],[.1,.55],[.45,-.15],[-.15,.05]].forEach(p=>{g.beginPath();g.arc(x+p[0]*r,y+p[1]*r,r*.05,0,TAU);g.fill();});
+      gloss(g,x,y,r*.9); break;
+    case 2: // uva
+      g.strokeStyle='#5d4037'; g.lineWidth=r*.1; g.lineCap='round'; g.beginPath();
+      g.moveTo(x,y-r*.7); g.lineTo(x+r*.12,y-r*1.0); g.stroke();
+      leaf(g,x+r*.1,y-r*.92,r*.5,-.4,'#66bb6a');
+      [[-.52,-.38],[0,-.38],[.52,-.38],[-.26,.1],[.26,.1],[0,.58]].forEach(p=>
+        ball(g,x+p[0]*r,y+p[1]*r+r*.05,r*.37,'#ce93d8','#6a1b9a'));
+      break;
+    case 3: // limão
+      g.save(); g.translate(x,y); g.rotate(-.5);
+      const gr=g.createRadialGradient(-r*.3,-r*.3,r*.1,0,0,r);
+      gr.addColorStop(0,'#fff59d'); gr.addColorStop(1,'#f9a825');
+      g.fillStyle=gr; g.beginPath(); g.ellipse(0,0,r*.98,r*.74,0,0,TAU); g.fill();
+      g.fillStyle='#f9a825';
+      g.beginPath(); g.arc(r*.97,0,r*.15,0,TAU); g.fill();
+      g.beginPath(); g.arc(-r*.97,0,r*.15,0,TAU); g.fill();
+      g.fillStyle='rgba(255,255,255,.4)'; g.beginPath(); g.ellipse(-r*.3,-r*.3,r*.3,r*.12,-.2,0,TAU); g.fill();
+      g.restore(); break;
+    case 4: // mirtilo
+      ball(g,x,y+r*.05,r*.9,'#90caf9','#1565c0');
+      star(g,x,y-r*.05,r*.3,r*.13,'#0d47a1',0); gloss(g,x,y,r*.9); break;
+    default: // kiwi
+      ball(g,x,y+r*.05,r*.9,'#c5e1a5','#558b2f');
+      g.fillStyle='#dcedc8'; g.beginPath(); g.arc(x,y+r*.05,r*.6,0,TAU); g.fill();
+      g.fillStyle='#f9fbe7'; g.beginPath(); g.arc(x,y+r*.05,r*.2,0,TAU); g.fill();
+      g.fillStyle='#33411d';
+      for (let i=0;i<9;i++){ const a=i*TAU/9; g.beginPath();
+        g.ellipse(x+Math.cos(a)*r*.4,y+r*.05+Math.sin(a)*r*.4,r*.04,r*.09,a,0,TAU); g.fill(); }
+      gloss(g,x,y,r*.9);
+  }
+}
+function drawObstacle(g,o,hp,x,y,r){
+  if(o===1){
+    g.fillStyle='#8d5524'; roundRect(g,x-r*.78,y-r*.78,r*1.56,r*1.56,r*.15); g.fill();
+    g.strokeStyle='#e6b36a'; g.lineWidth=r*.16; g.strokeRect(x-r*.62,y-r*.62,r*1.24,r*1.24);
+    g.beginPath();g.moveTo(x-r*.55,y-r*.55);g.lineTo(x+r*.55,y+r*.55);g.moveTo(x+r*.55,y-r*.55);g.lineTo(x-r*.55,y+r*.55);g.stroke();
+    g.fillStyle='#fff';g.font=`bold ${r*.65}px sans-serif`;g.textAlign='center';g.textBaseline='middle';g.fillText(String(hp||2),x,y);
+  } else if(o===2){
+    g.fillStyle='rgba(160,230,255,.48)';g.strokeStyle='#b9f2ff';g.lineWidth=r*.13;
+    g.beginPath();g.roundRect(x-r*.86,y-r*.86,r*1.72,r*1.72,r*.2);g.fill();g.stroke();
+    g.beginPath();g.moveTo(x-r*.45,y-r*.4);g.lineTo(x+r*.35,y+r*.42);g.moveTo(x+r*.4,y-r*.5);g.lineTo(x-r*.3,y+r*.45);g.stroke();
+  } else if(o===3){
+    g.fillStyle='#68717e';g.strokeStyle='#b0bec5';g.lineWidth=r*.12;
+    g.beginPath();g.moveTo(x-r*.8,y-r*.35);g.lineTo(x-r*.45,y-r*.8);g.lineTo(x+r*.35,y-r*.75);g.lineTo(x+r*.8,y-r*.2);g.lineTo(x+r*.65,y+r*.65);g.lineTo(x-r*.35,y+r*.8);g.closePath();g.fill();g.stroke();
+  }
+}
+function drawSpecial(g, s, x, y, r, t){
+  if (s===SP.ROCKET_H || s===SP.ROCKET_V){
+    ball(g,x,y,r*.98,'#ffe082','#ff8f00');
+    g.save(); g.translate(x,y); g.rotate(s===SP.ROCKET_H ? Math.PI/2 : 0);
+    g.fillStyle='#eceff1'; g.beginPath(); g.ellipse(0,0,r*.3,r*.58,0,0,TAU); g.fill();
+    g.fillStyle='#e53935';
+    g.beginPath(); g.moveTo(-r*.29,-r*.26); g.lineTo(0,-r*.82); g.lineTo(r*.29,-r*.26); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(-r*.27,r*.18); g.lineTo(-r*.56,r*.6); g.lineTo(-r*.2,r*.46); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(r*.27,r*.18); g.lineTo(r*.56,r*.6); g.lineTo(r*.2,r*.46); g.closePath(); g.fill();
+    g.fillStyle='#ff6d00'; g.beginPath(); g.moveTo(-r*.14,r*.55); g.lineTo(0,r*(.9+.08*Math.sin(t*20))); g.lineTo(r*.14,r*.55); g.closePath(); g.fill();
+    g.fillStyle='#42a5f5'; g.beginPath(); g.arc(0,-r*.08,r*.14,0,TAU); g.fill();
+    g.strokeStyle='#fff'; g.lineWidth=r*.04; g.stroke();
+    g.restore();
+    // setas indicando o eixo
+    g.fillStyle='rgba(60,30,0,.75)';
+    const d = s===SP.ROCKET_H ? [[1,0],[-1,0]] : [[0,1],[0,-1]];
+    d.forEach(v=>{ const bx=x+v[0]*r*.93, by=y+v[1]*r*.93, a=Math.atan2(v[1],v[0]);
+      g.save(); g.translate(bx,by); g.rotate(a); g.beginPath(); g.moveTo(r*.14,0); g.lineTo(-r*.08,-r*.14); g.lineTo(-r*.08,r*.14); g.closePath(); g.fill(); g.restore(); });
+  } else if (s===SP.BOMB){
+    ball(g,x,y+r*.1,r*.78,'#78909c','#1c2327'); gloss(g,x,y+r*.1,r*.78);
+    g.strokeStyle='#8d6e63'; g.lineWidth=r*.09; g.lineCap='round'; g.beginPath();
+    g.moveTo(x+r*.25,y-r*.55); g.quadraticCurveTo(x+r*.5,y-r*.75,x+r*.45,y-r*.98); g.stroke();
+    star(g,x+r*.45,y-r*1.0,r*(.24+.06*Math.sin(t*18)),r*.1,'#ffeb3b',t*3);
+  } else if (s===SP.RAINBOW){
+    const cols=['#e53935','#fb8c00','#fdd835','#43a047','#1e88e5','#5e35b1','#d81b60'];
+    const sp=t*1.2;
+    for (let i=0;i<7;i++){ g.fillStyle=cols[i]; g.beginPath(); g.moveTo(x,y);
+      g.arc(x,y,r*.95,sp+i*TAU/7,sp+(i+1)*TAU/7); g.closePath(); g.fill(); }
+    g.fillStyle='#fff'; g.beginPath(); g.arc(x,y,r*.3,0,TAU); g.fill();
+    star(g,x,y,r*.28,r*.12,'#ffd54f',t); gloss(g,x,y,r*.95);
+    g.strokeStyle='rgba(255,255,255,.7)'; g.lineWidth=r*.06; g.beginPath(); g.arc(x,y,r*.95,0,TAU); g.stroke();
+  }
+}
+
+/* ---------- som ---------- */
+let AC=null, muted=false;
+function unlockAudio(){
+  if (!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  if (AC && AC.state==='suspended') AC.resume();
+}
+function tone(f,d=.12,type='sine',vol=.12,slide=0,delay=0){
+  if (muted||!AC) return;
+  const t=AC.currentTime+delay, o=AC.createOscillator(), g=AC.createGain();
+  o.type=type; o.frequency.setValueAtTime(f,t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40,f*slide),t+d);
+  g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.0001,t+d);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+d+.02);
+}
+const sfx = {
+  pop:n=>tone(380+Math.min(n,14)*38,.13,'triangle',.14),
+  special:()=>{ tone(180,.35,'sawtooth',.09,4); tone(620,.2,'triangle',.1,2,.05); },
+  nope:()=>tone(150,.09,'square',.05),
+  duo:()=>{ tone(784,.1,'triangle',.1); tone(1175,.16,'triangle',.1,1,.08); },
+  win:()=>[523,659,784,1047].forEach((f,i)=>tone(f,.22,'triangle',.12,1,i*.12)),
+  lose:()=>[392,330,262].forEach((f,i)=>tone(f,.25,'sine',.12,1,i*.16))
+};
+
+/* ---------- renderização ---------- */
+const cv = document.getElementById('board'), ctx = cv.getContext('2d');
+let W=0,H=0,cs=40,ox=0,oy=0,dpr=1;
+const sprites = new Map(), dying = [], particles = [], rings = [], floaters = [];
+function resize(){
+  dpr = Math.min(window.devicePixelRatio||1, 2.5);
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.max(1,Math.round(r.width*dpr)); cv.height = Math.max(1,Math.round(r.height*dpr));
+  W = r.width; H = r.height;
+  cs = Math.floor(Math.min(W/COLS, H/ROWS)); ox = (W-cs*COLS)/2; oy = Math.max(8,(H-cs*ROWS)*.38);
+}
+window.addEventListener('resize', resize);
+
+function syncSprites(snap){
+  const seen = new Set();
+  snap.g.forEach((e,i)=>{
+    const [id,c,s] = e, col = i%COLS, row = (i/COLS)|0;
+    let sp = sprites.get(id);
+    if (!sp){
+      sp = {id, c, s, o:e[3]||0, hp:e[4]||0, x:col, y:row-ROWS-1-Math.random()*2.5, vy:0, col, row, bump:0, shake:0};
+      sprites.set(id, sp);
+    } else if (sp.s!==s || sp.c!==c){ sp.bump = 1; }
+    sp.c = c; sp.s = s; sp.o=e[3]||0; sp.hp=e[4]||0; sp.col = col; sp.row = row; seen.add(id);
+  });
+  for (const [id,sp] of sprites) if (!seen.has(id)){
+    dying.push({sp, t:0});
+    const color = sp.s ? '#ffd54f' : FRUIT_COLOR[sp.c] || '#fff';
+    for (let k=0;k<6 && particles.length<400;k++){
+      const a=Math.random()*TAU, v=1.5+Math.random()*3.5;
+      particles.push({x:sp.x+.5,y:sp.y+.5,vx:Math.cos(a)*v,vy:Math.sin(a)*v-2,life:0,max:.45+Math.random()*.3,color,size:.07+Math.random()*.07});
+    }
+    sprites.delete(id);
+  }
+}
+function addRing(col,row,player,big){
+  rings.push({x:col+.5,y:row+.5,t:0,color:P_COLOR[player],big});
+}
+function addFloater(col,row,text,color,size){
+  floaters.push({x:col+.5,y:row+.3,t:0,text,color,size:size||1});
+}
+function roundRect(g,x,y,w,h,r){
+  g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r);
+  g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath();
+}
+let lastT = performance.now();
+function frame(now){
+  const dt = Math.min(.05,(now-lastT)/1000); lastT = now; const t = now/1000;
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+  // painel
+  ctx.fillStyle='rgba(255,255,255,.07)'; roundRect(ctx,ox-6,oy-6,cs*COLS+12,cs*ROWS+12,16); ctx.fill();
+  for (let r=0;r<ROWS;r++) for (let c=0;c<COLS;c++){
+    if ((r+c)%2===0){ ctx.fillStyle='rgba(255,255,255,.045)'; ctx.fillRect(ox+c*cs,oy+r*cs,cs,cs); }
+  }
+  ctx.save(); ctx.beginPath(); ctx.rect(ox-2,oy-2,cs*COLS+4,cs*ROWS+4); ctx.clip();
+  // física
+  for (const sp of sprites.values()){
+    sp.x += (sp.col-sp.x)*Math.min(1,dt*14);
+    if (sp.y < sp.row){
+      sp.vy += 40*dt; sp.y += sp.vy*dt;
+      if (sp.y >= sp.row){ sp.y = sp.row; sp.vy = sp.vy>6 ? -sp.vy*.2 : 0; }
+    } else if (sp.y > sp.row){
+      if (sp.vy < 0){ sp.vy += 40*dt; sp.y += sp.vy*dt; if (sp.y>sp.row){ sp.y=sp.row; sp.vy=0; } }
+      else sp.y += (sp.row-sp.y)*Math.min(1,dt*12);
+    }
+    if (sp.bump>0) sp.bump = Math.max(0,sp.bump-dt*4);
+    if (sp.shake>0) sp.shake = Math.max(0,sp.shake-dt*5);
+  }
+  // desenhar
+  for (const sp of sprites.values()){
+    let sc = 1 + sp.bump*.3, pulse = sp.s ? 1+.05*Math.sin(t*5+sp.id) : 1;
+    const sx = sp.shake ? Math.sin(sp.shake*40)*sp.shake*.08 : 0;
+    const cx = ox + (sp.x+.5+sx)*cs, cy = oy + (sp.y+.5)*cs;
+    ctx.save(); ctx.translate(cx,cy); ctx.scale(sc*pulse,sc*pulse);
+    if (sp.s) drawSpecial(ctx,sp.s,0,0,cs*.43,t); else if(sp.c>=0) drawFruit(ctx,sp.c,0,0,cs*.42);
+    if(sp.o) drawObstacle(ctx,sp.o,sp.hp,0,0,cs*.46);
+    ctx.restore();
+  }
+  for (let i=dying.length-1;i>=0;i--){
+    const d = dying[i]; d.t += dt; const k = d.t/.24;
+    if (k>=1){ dying.splice(i,1); continue; }
+    const sp = d.sp, cx = ox+(sp.x+.5)*cs, cy = oy+(sp.y+.5)*cs, sc = 1+k*.45;
+    ctx.save(); ctx.globalAlpha = 1-k; ctx.translate(cx,cy); ctx.scale(sc,sc);
+    if (sp.s) drawSpecial(ctx,sp.s,0,0,cs*.43,t); else drawFruit(ctx,sp.c,0,0,cs*.42);
+    ctx.restore();
+  }
+  for (let i=particles.length-1;i>=0;i--){
+    const p = particles[i]; p.life += dt; if (p.life>=p.max){ particles.splice(i,1); continue; }
+    p.vy += 9*dt; p.x += p.vx*dt; p.y += p.vy*dt;
+    ctx.globalAlpha = 1-p.life/p.max; ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(ox+p.x*cs,oy+p.y*cs,p.size*cs,0,TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  for (let i=rings.length-1;i>=0;i--){
+    const r = rings[i]; r.t += dt; const dur = r.big?.7:.4; if (r.t>=dur){ rings.splice(i,1); continue; }
+    const k = r.t/dur;
+    ctx.strokeStyle = r.color; ctx.globalAlpha = 1-k; ctx.lineWidth = (r.big?5:3);
+    ctx.beginPath(); ctx.arc(ox+r.x*cs,oy+r.y*cs,cs*(.25+k*(r.big?.75:.5)),0,TAU); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.restore();
+  // textos flutuantes (fora do clip)
+  for (let i=floaters.length-1;i>=0;i--){
+    const f = floaters[i]; f.t += dt; if (f.t>=1.1){ floaters.splice(i,1); continue; }
+    const k = f.t/1.1;
+    ctx.globalAlpha = k<.7 ? 1 : 1-(k-.7)/.3;
+    ctx.font = `800 ${Math.round(cs*.5*f.size)}px system-ui,sans-serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    const x = ox+f.x*cs, y = oy+f.y*cs - k*cs*1.1;
+    ctx.lineWidth = 5; ctx.strokeStyle='rgba(20,5,45,.85)'; ctx.strokeText(f.text,x,y);
+    ctx.fillStyle = f.color; ctx.fillText(f.text,x,y);
+  }
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(frame);
+}
+
+/* ---------- estado do app ---------- */
+const App = {
+  mode:'menu',      // menu | solo | host | guest
+  me:0, game:null, snap:null, idxById:new Map(),
+  status:'play', dc:null, pc:null, lastRx:0, hb:null, connected:false, resultTimer:null
+};
+const $ = id => document.getElementById(id);
+
+function updateHUD(s){
+  $('lv').textContent = s.lv; $('mv').textContent = s.mv;
+  $('sc').textContent = s.sc; $('tg').textContent = s.tg;
+  const tot = Math.max(s.tg, s.ps[0]+s.ps[1]);
+  $('b0').style.width = (s.ps[0]/tot*100)+'%'; $('b1').style.width = (s.ps[1]/tot*100)+'%';
+  const pl = $('players');
+  if (App.mode==='host' || App.mode==='guest'){
+    const meI = App.me, thI = 1-App.me;
+    pl.innerHTML =
+      `<span><i class="dot" style="background:${P_COLOR[meI]}"></i>Você ${s.ps[meI]}</span>`+
+      `<span><i class="dot" style="background:${P_COLOR[thI]}"></i>Parceiro ${s.ps[thI]}</span>`;
+  } else pl.innerHTML = '';
+}
+
+const SAVE_KEY='fruta-duo-save-v1';
+function readSave(){ try{ const raw=localStorage.getItem(SAVE_KEY); return raw?JSON.parse(raw):null; }catch(e){return null;} }
+function saveProgress(snap){ try{ if((App.mode==='solo'||App.mode==='host') && snap) localStorage.setItem(SAVE_KEY,JSON.stringify(snap)); }catch(e){} }
+function clearSave(){ try{localStorage.removeItem(SAVE_KEY);}catch(e){} }
+
+/* aplica um estado (snapshot) + evento opcional */
+function present(snap, ev){
+  App.snap = snap; App.idxById = new Map(snap.g.map((e,i)=>[e[0],i])); saveProgress(snap);
+  syncSprites(snap); updateHUD(snap);
+  if (ev){
+    if (App.mode!=='solo' && ev.by!==App.me) addRing(ev.at[0],ev.at[1],ev.by,true);
+    if (ev.pts){ addFloater(ev.at[0],ev.at[1],'+'+ev.pts,P_COLOR[ev.by],ev.pts>=200?1.3:1); }
+    if (ev.duo){ addFloater(COLS/2-.5,1.2,'DUO! ×'+DUO_MULT,'#ffd54f',1.6); sfx.duo(); }
+    if (ev.made!==null) sfx.special(); else sfx.pop(ev.n);
+  }
+  if (snap.st !== App.status){
+    App.status = snap.st;
+    clearTimeout(App.resultTimer);
+    if (snap.st==='play') hideOverlay();
+    else App.resultTimer = setTimeout(()=>showResult(snap), 750);
+  }
+}
+
+/* ---------- entrada do jogador ---------- */
+function cellAtPointer(e){
+  const r = cv.getBoundingClientRect();
+  const c = Math.floor((e.clientX-r.left-ox)/cs), rr = Math.floor((e.clientY-r.top-oy)/cs);
+  if (c<0||c>=COLS||rr<0||rr>=ROWS) return null;
+  return {c, r:rr, i:rr*COLS+c};
+}
+cv.addEventListener('pointerdown', e=>{
+  e.preventDefault(); unlockAudio();
+  if (App.mode==='menu' || !App.snap || App.snap.st!=='play') return;
+  const h = cellAtPointer(e); if (!h) return;
+  const cell = App.snap.g[h.i], sp = sprites.get(cell[0]);
+  const valid = cell[3]===1 || cell[3]===3 ? cell[3]===1 : (cell[2] || floodIdx(j => App.snap.g[j][2] || App.snap.g[j][3]===1 || App.snap.g[j][3]===3 ? -1 : App.snap.g[j][1], h.i).length >= 2);
+  addRing(h.c,h.r,App.me,false);
+  if (!valid){ if (sp) sp.shake = 1; sfx.nope(); return; }
+  if (navigator.vibrate) navigator.vibrate(12);
+  doTap(cell[0], App.me, cell[1]*10+cell[2]);
+});
+function doTap(id, player, sig){
+  if (App.mode==='guest'){ send({t:'tap', id, sig}); return; }
+  const ev = App.game.tap(id, player, performance.now(), sig);
+  if (!ev) return;
+  const snap = App.game.snapshot();
+  if (App.mode==='host') send({t:'s', s:snap, e:ev});
+  present(snap, ev);
+}
+
+/* ---------- telas / overlay ---------- */
+const ov = $('overlay');
+function showOverlay(html){ ov.innerHTML = '<div class="card">'+html+'</div>'; ov.classList.add('on'); }
+function hideOverlay(){ ov.classList.remove('on'); ov.innerHTML=''; }
+
+function showMenu(){
+  App.mode='menu'; App.snap=null; App.status='play';
+  showOverlay(`
+    <h1>🍓 Fruta Duo</h1>
+    <p class="sub">Puzzle de frutas para fazer em dupla — os dois jogam ao mesmo tempo!</p>
+    ${readSave()?`<button class="btn pri" data-act="continue">Continuar fase ${readSave().lv}</button>`:''}
+    <button class="btn" data-act="solo">Novo jogo (solo ou 2 no mesmo celular)</button>
+    <button class="btn pri" data-act="host">Criar sala · 2 celulares</button>
+    <button class="btn" data-act="join">Entrar na sala</button>
+    <p class="hint">Toque em 2 ou mais frutas iguais coladas para estourar. Grupos de 5+ criam especiais:
+    foguete (linha/coluna), bomba e arco-íris (limpa uma cor). Caixas aparecem na fase 4, gelo na 8 e pedras na 12. Para jogar em 2 celulares, ambos precisam estar no mesmo Wi-Fi.</p>`);
+}
+function showResult(snap){
+  const won = snap.st==='won';
+  if (won) sfx.win(); else sfx.lose();
+  const two = App.mode!=='solo';
+  const me = App.me, th = 1-App.me;
+  showOverlay(`
+    <p class="big">${won?'🎉':'😵'}</p>
+    <h2>${won?'Fase '+snap.lv+' concluída!':'Acabaram as jogadas'}</h2>
+    <p>Equipe: <b>${snap.sc}</b> / ${snap.tg} pontos${won&&snap.mv>0?` · sobraram ${snap.mv} jogadas`:''}</p>
+    ${two?`<div class="res"><div><i class="dot" style="background:${P_COLOR[me]}"></i> Você<b>${snap.ps[me]}</b></div>
+    <div><i class="dot" style="background:${P_COLOR[th]}"></i> Parceiro<b>${snap.ps[th]}</b></div></div>`:''}
+    <button class="btn pri" data-act="${won?'next':'retry'}">${won?'Próxima fase':'Tentar de novo'}</button>
+    <button class="link" data-act="menu">Menu</button>`);
+}
+ov.addEventListener('click', async e=>{
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  unlockAudio();
+  const a = b.dataset.act;
+  if (a==='solo') startSolo(false);
+  else if (a==='continue') startSolo(true);
+  else if (a==='host') lobbyHost();
+  else if (a==='join') lobbyJoin();
+  else if (a==='menu'){ resetNet(); showMenu(); }
+  else if (a==='next' || a==='retry') command(a);
+  else if (a==='copyOut') copyText($('codeOut'));
+  else if (a==='shareOut') shareText($('codeOut'));
+  else if (a==='hostConnect') hostConnect();
+  else if (a==='guestGen') guestGen();
+});
+$('snd').addEventListener('click', ()=>{ unlockAudio(); muted=!muted; $('snd').textContent = muted?'🔇':'🔊'; });
+
+function command(a){
+  if (App.mode==='guest'){ send({t:'cmd', a}); return; }
+  hostCommand(a);
+}
+function hostCommand(a){
+  const g = App.game; if (!g) return;
+  if (a==='next' && g.status==='won') g.start(g.level+1);
+  else if (a==='retry' && g.status==='lost') g.start(g.level);
+  else return;
+  const snap = g.snapshot();
+  if (App.mode==='host') send({t:'s', s:snap});
+  present(snap);
+}
+
+function startSolo(resume=false){
+  resetNet(); App.mode='solo'; App.me=0;
+  const saved=resume?readSave():null;
+  App.game=saved?Game.restore(saved):new Game(0, true);
+  if(!saved) clearSave();
+  clearBoard(); hideOverlay(); present(App.game.snapshot());
+  keepAwake();
+}
+function clearBoard(){ sprites.clear(); dying.length=0; particles.length=0; rings.length=0; floaters.length=0; App.status='play'; }
+async function keepAwake(){ try{ if (navigator.wakeLock) await navigator.wakeLock.request('screen'); }catch(e){} }
+
+/* ---------- conexão entre celulares (WebRTC, sem servidor) ---------- */
+function b64u(bytes){
+  let s=''; for (let i=0;i<bytes.length;i+=0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i,i+0x8000));
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+function unb64u(str){
+  str = str.replace(/-/g,'+').replace(/_/g,'/'); while (str.length%4) str+='=';
+  const bin = atob(str), out = new Uint8Array(bin.length);
+  for (let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i); return out;
+}
+async function pack(obj){
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  if (typeof CompressionStream !== 'undefined'){
+    const c = new CompressionStream('deflate-raw'), w = c.writable.getWriter();
+    w.write(bytes); w.close();
+    return 'FD1.'+b64u(new Uint8Array(await new Response(c.readable).arrayBuffer()))+'~';
+  }
+  return 'FD0.'+b64u(bytes)+'~';
+}
+async function unpack(text){
+  // o código termina em "~", então textos extras antes/depois (ex.: mensagem do WhatsApp) são ignorados
+  const m = /FD([01])\.([A-Za-z0-9_\s-]+)~/.exec(text);
+  if (!m) throw new Error('Código inválido ou incompleto. Copie o código inteiro, até o final (~).');
+  const raw = unb64u(m[2].replace(/\s+/g,''));
+  if (m[1]==='0') return JSON.parse(new TextDecoder().decode(raw));
+  if (typeof DecompressionStream === 'undefined') throw new Error('Este navegador não abre o código. Atualize o Chrome.');
+  const d = new DecompressionStream('deflate-raw'), w = d.writable.getWriter();
+  w.write(raw); w.close();
+  return JSON.parse(new TextDecoder().decode(await new Response(d.readable).arrayBuffer()));
+}
+function waitIce(pc){
+  return new Promise(res=>{
+    if (pc.iceGatheringState==='complete') return res();
+    const done = ()=>{ pc.removeEventListener('icegatheringstatechange',chk); res(); };
+    const chk = ()=>{ if (pc.iceGatheringState==='complete') done(); };
+    pc.addEventListener('icegatheringstatechange',chk);
+    setTimeout(done, 4000);
+  });
+}
+function newPC(){
+  const pc = new RTCPeerConnection({iceServers:[]});
+  pc.onconnectionstatechange = ()=>{
+    if (pc.connectionState==='failed'){ netLost('Não foi possível conectar. Verifique se os dois estão no mesmo Wi-Fi (redes de visitantes bloqueiam isso) e tente de novo.'); }
+  };
+  return pc;
+}
+function resetNet(){
+  clearInterval(App.hb); App.hb=null; App.connected=false;
+  try{ App.dc && App.dc.close(); }catch(e){}
+  try{ App.pc && App.pc.close(); }catch(e){}
+  App.dc=null; App.pc=null;
+}
+function send(obj){
+  try{ if (App.dc && App.dc.readyState==='open') App.dc.send(JSON.stringify(obj)); }catch(e){}
+}
+function setupDC(dc){
+  App.dc = dc;
+  dc.onopen = ()=>onConnected();
+  dc.onclose = ()=>{ if (App.connected) netLost('A conexão com o parceiro caiu.'); };
+  dc.onmessage = ev=>{
+    App.lastRx = performance.now();
+    let m; try{ m = JSON.parse(ev.data); }catch(e){ return; }
+    onMessage(m);
+  };
+}
+function onConnected(){
+  App.connected = true; App.lastRx = performance.now();
+  clearBoard();
+  App.hb = setInterval(()=>{
+    send({t:'p'});
+    if (performance.now()-App.lastRx > 8000) netLost('Perdi o contato com o parceiro.');
+  }, 2000);
+  if (App.mode==='host'){
+    App.me = 0; const saved=readSave(); App.game = (saved && !saved.solo)?Game.restore(saved):new Game();
+    hideOverlay(); const snap = App.game.snapshot(); send({t:'s', s:snap}); present(snap);
+  } else {
+    App.me = 1; send({t:'hello'});
+    $('players').innerHTML = '';
+  }
+  keepAwake();
+}
+function onMessage(m){
+  if (m.t==='s'){ if (App.mode==='guest'){ if (ov.classList.contains('on') && m.s.st==='play') hideOverlay(); present(m.s, m.e); } }
+  else if (m.t==='tap'){ if (App.mode==='host') doTap(m.id, 1, m.sig); }
+  else if (m.t==='cmd'){ if (App.mode==='host') hostCommand(m.a); }
+  else if (m.t==='hello'){ if (App.mode==='host' && App.game) send({t:'s', s:App.game.snapshot()}); }
+}
+function netLost(msg){
+  if (App.mode==='menu') return;
+  const was = App.connected; resetNet();
+  showOverlay(`<p class="big">📡</p><h2>${was?'Conexão perdida':'Falha ao conectar'}</h2><p class="err">${msg}</p>
+    <button class="btn pri" data-act="menu">Voltar ao menu</button>`);
+}
+
+function copyText(el){
+  el.focus(); el.select(); el.setSelectionRange(0, 99999);
+  let ok=false;
+  try{ ok = document.execCommand('copy'); }catch(e){}
+  if (!ok && navigator.clipboard) navigator.clipboard.writeText(el.value).catch(()=>{});
+  setLobbyMsg('Código copiado!');
+}
+function shareText(el){
+  if (navigator.share) navigator.share({text:el.value}).catch(()=>{}); else copyText(el);
+}
+function setLobbyMsg(t,err){ const s=$('st'); if (s){ s.textContent=t; s.className='hint'+(err?' err':''); } }
+
+async function lobbyHost(){
+  resetNet(); App.mode='host';
+  showOverlay(`<h2>Criar sala</h2>
+    <p><b>1.</b> Mande este código para o parceiro (WhatsApp, por exemplo):</p>
+    <textarea id="codeOut" readonly rows="4">Gerando código…</textarea>
+    <div class="row"><button class="btn" data-act="copyOut">Copiar</button><button class="btn" data-act="shareOut">Compartilhar</button></div>
+    <p><b>2.</b> Cole aqui a resposta que ele te enviar:</p>
+    <textarea id="codeIn" rows="3" placeholder="Cole a resposta aqui"></textarea>
+    <button class="btn pri" data-act="hostConnect">Conectar</button>
+    <p id="st" class="hint"></p>
+    <button class="link" data-act="menu">Voltar</button>`);
+  try{
+    const pc = App.pc = newPC();
+    setupDC(pc.createDataChannel('game'));
+    await pc.setLocalDescription(await pc.createOffer());
+    await waitIce(pc);
+    $('codeOut').value = await pack({t:'offer', sdp:pc.localDescription.sdp});
+  }catch(e){ setLobbyMsg('Erro ao criar a sala: '+e.message, true); }
+}
+async function hostConnect(){
+  try{
+    const o = await unpack($('codeIn').value);
+    if (o.t!=='answer') throw new Error('Esse é o código da sala, não a resposta do parceiro.');
+    setLobbyMsg('Conectando…');
+    await App.pc.setRemoteDescription({type:'answer', sdp:o.sdp});
+  }catch(e){ setLobbyMsg(e.message, true); }
+}
+function lobbyJoin(){
+  resetNet(); App.mode='guest';
+  showOverlay(`<h2>Entrar na sala</h2>
+    <p><b>1.</b> Cole o código que o anfitrião te enviou:</p>
+    <textarea id="codeIn" rows="4" placeholder="Cole o código aqui"></textarea>
+    <button class="btn pri" data-act="guestGen">Gerar resposta</button>
+    <div id="guestOut" style="display:none">
+      <p><b>2.</b> Mande esta resposta de volta para o anfitrião:</p>
+      <textarea id="codeOut" readonly rows="4"></textarea>
+      <div class="row"><button class="btn" data-act="copyOut">Copiar</button><button class="btn" data-act="shareOut">Compartilhar</button></div>
+      <p class="hint">Depois que ele colar a resposta, o jogo começa sozinho.</p>
+    </div>
+    <p id="st" class="hint"></p>
+    <button class="link" data-act="menu">Voltar</button>`);
+}
+async function guestGen(){
+  try{
+    const o = await unpack($('codeIn').value);
+    if (o.t!=='offer') throw new Error('Esse é o código de resposta; cole o código da sala.');
+    setLobbyMsg('Gerando resposta…');
+    const pc = App.pc = newPC();
+    pc.ondatachannel = e => setupDC(e.channel);
+    await pc.setRemoteDescription({type:'offer', sdp:o.sdp});
+    await pc.setLocalDescription(await pc.createAnswer());
+    await waitIce(pc);
+    $('codeOut').value = await pack({t:'answer', sdp:pc.localDescription.sdp});
+    $('guestOut').style.display = 'block';
+    setLobbyMsg('Aguardando o anfitrião conectar…');
+  }catch(e){ setLobbyMsg(e.message, true); }
+}
+
+/* ---------- início ---------- */
+window.FD = {Game, App, sprites, floodIdx, present, startSolo};
+resize(); requestAnimationFrame(frame); showMenu();
+new ResizeObserver(resize).observe(cv);
+</script>
+</body>
+</html>
