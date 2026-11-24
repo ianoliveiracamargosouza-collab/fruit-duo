@@ -263,6 +263,7 @@ class Game {
       removed = this.expand(toRemove);
       const chain = removed.size - toRemove.length;
       pts = grp.length*10 + Math.max(0, grp.length-3)*10 + chain*15;
+      if(grp.length>=9) pts+=500; else if(grp.length>=7) pts+=250; else if(grp.length>=5) pts+=100;
     } else {
       removed = this.expand([i]);
       pts = removed.size*15;
@@ -289,7 +290,7 @@ class Game {
     this.moves--;const appleLv=this.relics.apple||0,appleChance=[0,.05,.10,.15,.20,.25][Math.min(5,appleLv)];if(appleLv&&this.rng()<appleChance)this.moves++;
     this.score += pts; this.ps[player] += pts;
     if (this.score >= this.target) {
-      this.status = 'won'; this.awardRelic();
+      this.status = 'won'; this.score += (this.level%5===0?2000:500); this.awardRelic();
       const pool=['rocket','bomb','rainbow'];
       this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;
       if(this.level%5===0) for(let k=0;k<2;k++) this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;
@@ -330,11 +331,12 @@ class Game {
     } else return null;
     const actual=[...remove].filter(j=>this.grid[j]&&this.grid[j].c>=0&&this.grid[j].o!==1&&this.grid[j].o!==3);
     if(!actual.length) return null;
-    this.inventory[type]--; const points=actual.length*8;
+    const itemLv=Math.max(1,Math.min(5,this.itemLevels[type]||1));
+    this.inventory[type]--; const points=actual.length*(15+(itemLv-1)*5);
     for(const j of actual) this.grid[j]=null;
     this.gravity(); this.score+=points;
 
-    if(this.score>=this.target){this.status='won';this.awardRelic();const pool=['rocket','bomb','rainbow'];this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;if(this.level%5===0)for(let k=0;k<2;k++)this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;}
+    if(this.score>=this.target){this.status='won';this.score+=(this.level%5===0?2000:500);this.awardRelic();const pool=['rocket','bomb','rainbow'];this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;if(this.level%5===0)for(let k=0;k<2;k++)this.inventory[pool[Math.floor(this.rng()*pool.length)]]++;}
     return {type,at:[i%COLS,(i/COLS)|0],n:actual.length,pts:points};
   }
   awardRelic(){if(this.level%5!==0)return;const keys=['apple','grape','orange','kiwi','blueberry'];const k=keys[(Math.floor(this.level/5)-1)%5];this.relics[k]=Math.min(5,(this.relics[k]||0)+1);
