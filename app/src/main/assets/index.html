@@ -342,10 +342,10 @@ class Game {
   awardRelic(){if(this.level%3!==0)return;const keys=['apple','grape','orange','kiwi','blueberry'];const k=keys[(Math.floor(this.level/3)-1)%5];this.relics[k]=Math.min(5,(this.relics[k]||0)+1);
     const eligible=['rocket','bomb','rainbow'].filter(type=>(this.itemLevels[type]||1)<5);
     if(!eligible.length)return;
-    const guaranteed=eligible[Math.floor(this.rng()*eligible.length)];
-    this.itemLevels[guaranteed]=Math.min(5,(this.itemLevels[guaranteed]||1)+1);
-    const extraChance=eligible.length===3?0.25:eligible.length===2?0.5:0;
-    for(const type of eligible)if(type!==guaranteed&&this.rng()<extraChance)this.itemLevels[type]=Math.min(5,(this.itemLevels[type]||1)+1);
+    for(let i=eligible.length-1;i>0;i--){const j=Math.floor(this.rng()*(i+1));[eligible[i],eligible[j]]=[eligible[j],eligible[i]];}
+    this.itemLevels[eligible[0]]=Math.min(5,(this.itemLevels[eligible[0]]||1)+1);
+    if(eligible.length>1&&this.rng()<0.5)this.itemLevels[eligible[1]]=Math.min(5,(this.itemLevels[eligible[1]]||1)+1);
+    if(eligible.length>2&&this.rng()<0.25)this.itemLevels[eligible[2]]=Math.min(5,(this.itemLevels[eligible[2]]||1)+1);
   }
   snapshot(){
     return {lv:this.level, mv:this.moves, tg:this.target, sc:this.score, ps:this.ps.slice(), inv:{...this.inventory},relics:{...this.relics},itemLevels:{...this.itemLevels},
